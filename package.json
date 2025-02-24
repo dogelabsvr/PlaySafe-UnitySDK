@@ -1,0 +1,23 @@
+{
+  "name": "com.dogelabsvr.playsafe",
+  "version": "0.1.0",
+  "displayName": "PlaySafe",
+  "description": "PlaySafe is an AI-powered suite of tools for video game moderation and character intelligence.",
+  "unity": "2021.3",
+  "unityRelease": "0b4",
+  "documentationUrl": "https://docs.playsafe.ai/unity-sdk",
+  "changelogUrl": "https://docs.playsafe.ai/unity-sdk/changelog",
+  "licensesUrl": "https://docs.playsafe.ai/unity-sdk/licenses",
+  "dependencies": {},
+  "keywords": [
+    "moderation",
+    "safety",
+    "ai",
+    "playsafe"
+  ],
+  "author": {
+    "name": "DogelabsVR",
+    "email": "playsafe@dogelabsvr.com",
+    "url": "https://dogelabsvr.com"
+  }
+}
