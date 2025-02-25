@@ -8,7 +8,9 @@
   "documentationUrl": "https://docs.playsafe.ai/unity-sdk",
   "changelogUrl": "https://docs.playsafe.ai/unity-sdk/changelog",
   "licensesUrl": "https://docs.playsafe.ai/unity-sdk/licenses",
-  "dependencies": {},
+  "dependencies": {
+    "com.unity.nuget.newtonsoft-json": "3.2.1"
+  },
   "keywords": [
     "moderation",
     "safety",
