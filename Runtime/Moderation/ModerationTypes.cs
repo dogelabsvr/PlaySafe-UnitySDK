@@ -3,6 +3,11 @@ using Newtonsoft.Json;
 using System.Collections.Generic;
 
 namespace Moderation {
+    public class ModerationPlayerData
+    {
+        public string UserId;
+        public string RoomId;
+    }
     
     #region Request Types
 
@@ -12,7 +17,7 @@ namespace Moderation {
         public string targetPlayerUserId;
     }
 
-    public class DLVoiceTelemetry
+    public class ProcessAudioEventRequest
     {
         public string UserId;
         public string RoomId;
@@ -29,7 +34,7 @@ namespace Moderation {
 
         // Contains the data returned by the operation
         [JsonProperty("data")]
-        public DataRecommendation Data { get; set; }
+        public ModerationRecommendationData Data { get; set; }
 
         // A message describing the result of the operation
         [JsonProperty("message")]
@@ -74,4 +79,6 @@ namespace Moderation {
     }
     #endregion
 
+    
+    
 }

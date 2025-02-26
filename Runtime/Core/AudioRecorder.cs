@@ -1,17 +1,13 @@
 using System;
-using System.Collections;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
-using System.Threading.Tasks;
-using Newtonsoft.Json;
 using UnityEngine;
 using UnityEngine.Android;
-using UnityEngine.Networking;
 using Debug = UnityEngine.Debug;
+
 namespace Core {
-  public class PlaySafeAudioRecorder: MonoBehaviour {
+  public class PlaySafeAudioRecorder {
         private AudioClip _audioClipRecording;
         private bool _isRecording = false;
         private Stopwatch _lastRecording = new Stopwatch();
@@ -78,12 +74,12 @@ namespace Core {
         private void WriteWavHeader(Stream stream, AudioClip clip, int dataLength)
         {
             // RIFF header
-            stream.Write(System.Text.Encoding.UTF8.GetBytes("RIFF"), 0, 4);
+            stream.Write(Encoding.UTF8.GetBytes("RIFF"), 0, 4);
             stream.Write(BitConverter.GetBytes((int)(stream.Length - 8)), 0, 4);
-            stream.Write(System.Text.Encoding.UTF8.GetBytes("WAVE"), 0, 4);
+            stream.Write(Encoding.UTF8.GetBytes("WAVE"), 0, 4);
 
             // fmt subchunk
-            stream.Write(System.Text.Encoding.UTF8.GetBytes("fmt "), 0, 4);
+            stream.Write(Encoding.UTF8.GetBytes("fmt "), 0, 4);
             stream.Write(BitConverter.GetBytes(16), 0, 4); // Subchunk1Size (16 for PCM)
             stream.Write(BitConverter.GetBytes((short)1), 0, 2); // AudioFormat (1 for PCM)
             stream.Write(BitConverter.GetBytes((short)clip.channels), 0, 2);
@@ -93,7 +89,7 @@ namespace Core {
             stream.Write(BitConverter.GetBytes((short)16), 0, 2);
 
             // data subchunk
-            stream.Write(System.Text.Encoding.UTF8.GetBytes("data"), 0, 4);
+            stream.Write(Encoding.UTF8.GetBytes("data"), 0, 4);
             stream.Write(BitConverter.GetBytes(dataLength), 0, 4);
         }
 

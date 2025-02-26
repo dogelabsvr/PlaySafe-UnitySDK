@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
+using Core;
 using Newtonsoft.Json;
 using UnityEngine;
 using UnityEngine.Android;
@@ -26,6 +27,13 @@ namespace Moderation
             this._api = new PlaySafeAPI(appKey, "/moderation");
         }
 
+        private ProcessAudioEventRequest GetTelemetry()
+        {
+            string userId = "1234";
+            string roomName = "ExampleRoom";
+            return new DLVoiceTelemetry()
+          
+        }
 
         /// <summary>
         /// Prepares a WWWForm with telemetry data.

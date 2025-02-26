@@ -34,12 +34,19 @@ namespace Core {
             this._baseEndpointUrl = _playSafeApiUrl + baseApiUrl;
         }
     
-        public PostRequest<T>(string endpoint, object body) {
+        public PlaySafeApiResponse<T> PostRequest<T>(string endpoint, object body) {
             // TODO: Implement
+            return 0;
         }
 
-        public GetRequest<T>(string endpoint) {
+        public PlaySafeApiResponse<T> FormPostRequest<T>(string endpoint, object body)
+        {
+            return 0;
+        }
+
+        public T GetRequest<T>(string endpoint) {
             // TODO: Implement
+            return 0;
         }
 
     }

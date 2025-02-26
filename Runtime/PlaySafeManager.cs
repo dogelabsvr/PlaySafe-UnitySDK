@@ -103,7 +103,7 @@ namespace PlaySafe.Runtime {
         /// <summary>
         /// Must be set to provide telemetry data.
         /// </summary>
-        public Func<DLVoiceTelemetry> GetTelemetry { private get; set; }
+        public Func<ModerationPlayerData> GetTelemetry { private get; set; }
 
         /// <summary>
         /// Called when an action is returned from voice moderation.
