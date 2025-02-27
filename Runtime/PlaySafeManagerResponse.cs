@@ -2,7 +2,7 @@ using System;
 using Newtonsoft.Json;
 using System.Collections.Generic;
 
-public class DLVoiceAIActionResponse
+public class PlaySafeActionResponse
 {
     // Indicates whether the operation was successful
     [JsonProperty("ok")]

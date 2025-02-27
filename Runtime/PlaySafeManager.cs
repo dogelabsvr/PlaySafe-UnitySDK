@@ -32,7 +32,7 @@ namespace _DL.PlaySafe
         /// <summary>
         /// Must be set to provide telemetry data.
         /// </summary>
-        public Func<DLVoiceTelemetry> GetTelemetry { private get; set; }
+        public Func<AudioEventRequestData> GetTelemetry { private get; set; }
 
         /// <summary>
         /// Called when an action is returned from voice moderation.
@@ -327,7 +327,7 @@ namespace _DL.PlaySafe
         /// </summary>
         private WWWForm SetupForm()
         {
-            DLVoiceTelemetry telemetry = GetTelemetry();
+            AudioEventRequestData telemetry = GetTelemetry();
             WWWForm form = new WWWForm();
             form.AddField("userId", telemetry.UserId);
             form.AddField("roomId", telemetry.RoomId);
@@ -378,7 +378,7 @@ namespace _DL.PlaySafe
         {
             try
             {
-                DLVoiceAIActionResponse response = JsonConvert.DeserializeObject<DLVoiceAIActionResponse>(jsonResponse);
+                PlaySafeActionResponse response = JsonConvert.DeserializeObject<PlaySafeActionResponse>(jsonResponse);
                 if (response.Ok)
                 {
                     Recommendation recommendation = response.Data.Recommendation;
@@ -689,19 +689,12 @@ namespace _DL.PlaySafe
             public string targetPlayerUserId;
         }
 
-        public class DLVoiceTelemetry
+        public class AudioEventRequestData
         {
             public string UserId;
             public string RoomId;
         }
 
-        // The following classes are assumed to be defined elsewhere in your project.
-        // public class DLVoiceAIActionResponse { public bool Ok; public string Message; public DLVoiceAIActionData Data; }
-        // public class DLVoiceAIActionData { public Recommendation Recommendation; }
-        // public class Recommendation { public bool HasViolation; public List<ActionItem> Actions; }
-        // public class ActionItem { /* ... */ }
-        // public class RemoteConfigVoiceAIResponse { public bool Ok; public string Message; public RemoteConfigVoiceAIData Data; }
-        // public class RemoteConfigVoiceAIData { public float SamplingRate; }
 
         #endregion
     }
