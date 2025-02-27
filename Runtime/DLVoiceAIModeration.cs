@@ -12,7 +12,7 @@ using Debug = UnityEngine.Debug;
 
 namespace _DL.PlaySafe
 {
-    public class DLVoiceAIModeration : MonoBehaviour
+    public class PlaySafeManager : MonoBehaviour
     {
         private const string playsafeBaseURL = "https://dl-voice-ai.dogelabs.workers.dev";
         private const string voiceModerationEndpoint = "/products/moderation";
@@ -20,7 +20,7 @@ namespace _DL.PlaySafe
         
         #region Singleton & Initialization
 
-        public static DLVoiceAIModeration Instance;
+        public static PlaySafeManager Instance;
 
         private bool _isInitialized = false;
 
@@ -59,7 +59,7 @@ namespace _DL.PlaySafe
 
             if (_isInitialized)
             {
-                Debug.LogError("DLVoiceAIModeration is already initialized");
+                Debug.LogError("PlaySafeManager is already initialized");
                 return;
             }
 
@@ -71,7 +71,7 @@ namespace _DL.PlaySafe
         {
             if (GetMicrophoneDeviceCount() <= 0)
             {
-                Debug.LogError("DLVoiceAIModeration: No microphone found");
+                Debug.LogError("PlaySafeManager: No microphone found");
             }
             StartCoroutine(GetProductAIConfig());
             _lastRecording.Restart();
@@ -207,7 +207,7 @@ namespace _DL.PlaySafe
             _audioClipRecording = Microphone.Start(mic, false, RecordingDurationSeconds, 16000); // 10 seconds at 16 kHz
             _isRecording = true;
             _lastRecording.Restart();
-            Debug.Log("DLVoiceAIModeration: Recording started");
+            Debug.Log("PlaySafeManager: Recording started");
         }
 
         private void StopRecording()
@@ -218,7 +218,7 @@ namespace _DL.PlaySafe
             Microphone.End(null);
             StartCoroutine(SendAudioClipForAnalysisCoroutine(_audioClipRecording));
             _isRecording = false;
-            Debug.Log("DLVoiceAIModeration: Recording stopped");
+            Debug.Log("PlaySafeManager: Recording stopped");
         }
         
         public void _ToggleRecording()
@@ -338,14 +338,14 @@ namespace _DL.PlaySafe
         {
             if (clip == null)
             {
-                Debug.LogError("DLVoiceAIModeration: AudioClip is null.");
+                Debug.LogError("PlaySafeManager: AudioClip is null.");
                 yield break;
             }
 
             var (wavFileBytes, isSilent) = AudioClipToWav(clip);
             if (isSilent)
             {
-                Debug.Log("DLVoiceAIModeration: The AudioClip is silent. Skipping upload.");
+                Debug.Log("PlaySafeManager: The AudioClip is silent. Skipping upload.");
                 yield break;
             }
 
@@ -364,7 +364,7 @@ namespace _DL.PlaySafe
 
                 if (www.result != UnityWebRequest.Result.Success)
                 {
-                    Debug.LogError($"DLVoiceAIModeration: {www.error}");
+                    Debug.LogError($"PlaySafeManager: {www.error}");
                     Debug.Log(www.downloadHandler.text);
                 }
                 else
@@ -389,12 +389,12 @@ namespace _DL.PlaySafe
                 }
                 else
                 {
-                    Debug.Log($"DLVoiceAIModeration: Operation failed: {response.Message}");
+                    Debug.Log($"PlaySafeManager: Operation failed: {response.Message}");
                 }
             }
             catch (Exception e)
             {
-                Debug.LogError("DLVoiceAIModeration: Could not parse moderation response.");
+                Debug.LogError("PlaySafeManager: Could not parse moderation response.");
                 Debug.LogException(e);
             }
         }
@@ -429,11 +429,10 @@ namespace _DL.PlaySafe
             }
             else
             {
-                Debug.Log("DLVoiceAIModeration: Report upload complete!");
+                Debug.Log("PlaySafeManager: Report upload complete!");
                 Debug.Log(www.downloadHandler.text);
             }
         }
-
 
         private void OnApplicationFocus(bool hasFocus)
         {
@@ -578,12 +577,12 @@ namespace _DL.PlaySafe
                 }
                 else
                 {
-                    Debug.Log($"DLVoiceAIModeration: Remote config failed: {response.Message}");
+                    Debug.Log($"PlaySafeManager: Remote config failed: {response.Message}");
                 }
             }
             catch (Exception e)
             {
-                Debug.LogError("DLVoiceAIModeration: Could not parse remote config response.");
+                Debug.LogError("PlaySafeManager: Could not parse remote config response.");
                 Debug.LogException(e);
             }
         }
