@@ -42,11 +42,15 @@ public class DemoPlaySafeIntegration : MonoBehaviour
     {
         string userId = "1234";
         string roomName = "ExampleRoom";
-        return new PlaySafeManager.AudioEventRequestData()
+        string language = Application.systemLanguage.ToString();
+        PlaySafeManager.AudioEventRequestData telemetry = new PlaySafeManager.AudioEventRequestData()
         {
             UserId = userId,
             RoomId = roomName,
+            Language = language,
         };
+
+        return telemetry;
     }
     
 

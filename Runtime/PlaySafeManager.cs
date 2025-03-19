@@ -331,6 +331,8 @@ namespace _DL.PlaySafe
             WWWForm form = new WWWForm();
             form.AddField("userId", telemetry.UserId);
             form.AddField("roomId", telemetry.RoomId);
+            form.AddField("language", telemetry.Language);
+            
             return form;
         }
 
@@ -693,6 +695,7 @@ namespace _DL.PlaySafe
         {
             public string UserId;
             public string RoomId;
+            public string Language;
         }
 
 
