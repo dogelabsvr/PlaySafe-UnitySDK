@@ -680,6 +680,44 @@ namespace _DL.PlaySafe
                 }
             }
         }
+        
+        /// <summary>
+        /// Gets the current status of a player including any active violations.
+        /// </summary>
+        /// <param name="playerUserId">The unique identifier for the player.</param>
+        public IEnumerator GetPlayerStatus(string playerUserId)
+        {
+            string url = playsafeBaseURL + "/player/status?userId=" + playerUserId;
+
+            using (UnityWebRequest www = UnityWebRequest.Get(url))
+            {
+                www.SetRequestHeader("Authorization", "Bearer " + appKey);
+                yield return www.SendWebRequest();
+
+                if (www.result != UnityWebRequest.Result.Success)
+                {
+                    Debug.LogError("GetPlayerStatus error: " + www.error);
+                    Debug.Log(www.downloadHandler.text);
+                    return null;
+                }
+                else
+                {
+                    Debug.Log("Player status retrieved successfully");
+                    Debug.Log(www.downloadHandler.text);
+                    
+                    try
+                    {
+                        PlayerStatusResponse response = JsonConvert.DeserializeObject<PlayerStatusResponse>(www.downloadHandler.text);
+                        return response;
+                    }
+                    catch (Exception e)
+                    {
+                        Debug.LogError("Could not parse player status response.");
+                        Debug.LogException(e);
+                    }
+                }
+            }
+        }
 
         #endregion
 
