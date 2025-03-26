@@ -22,6 +22,10 @@ public class DataRecommendation
     // The recommendation data
     [JsonProperty("recommendation")]
     public Recommendation Recommendation { get; set; }
+    
+    // Server time
+    [JsonProperty("serverTime")]
+    public string ServerTime { get; set; }
 }
 
 public class Recommendation
@@ -38,6 +42,47 @@ public class Recommendation
     [JsonProperty("actions")]
     public List<ActionItem> Actions { get; set; }
 }
+
+//#region Player Status
+public class PlayerStatusResponse
+{
+    [JsonProperty("ok")]
+    public bool Ok { get; set; }
+    
+    [JsonProperty("data")]
+    public PlayerStatusData Data { get; set; }
+    
+    [JsonProperty("message")]
+    public string Message { get; set; }
+}
+
+public class PlayerStatusData
+{
+    [JsonProperty("hasViolation")]
+    public bool HasViolation { get; set; }
+    
+    [JsonProperty("activeActionLog")]
+    public ActionLog ActiveActionLog { get; set; }
+    
+    [JsonProperty("serverTime")]
+    public DateTime ServerTime { get; set; }
+}
+
+public class ActionLog
+{
+    [JsonProperty("actionValue")]
+    public string ActionValue { get; set; }
+    
+    [JsonProperty("endDate")]
+    public DateTime EndDate { get; set; }
+    
+    [JsonProperty("isActive")]
+    public bool IsActive { get; set; }
+    
+    [JsonProperty("durationInMinutes")]
+    public int DurationInMinutes { get; set; }
+}
+//#endregion
 
 public class ActionItem
 {

@@ -8,6 +8,7 @@ using Newtonsoft.Json;
 using UnityEngine;
 using UnityEngine.Android;
 using UnityEngine.Networking;
+using UnityEngine.Serialization;
 using Debug = UnityEngine.Debug;
 
 namespace _DL.PlaySafe
@@ -37,7 +38,10 @@ namespace _DL.PlaySafe
         /// <summary>
         /// Called when an action is returned from voice moderation.
         /// </summary>
-        public Action<ActionItem> OnActionEvent { private get; set; }
+        /// <summary>
+        /// Called when an action is returned from voice moderation.
+        /// </summary>
+        public Action<ActionItem, DateTime> OnActionEvent { private get; set; }
 
         /// <summary>
         /// Call this method to initialize the voice AI moderation system.
@@ -86,6 +90,10 @@ namespace _DL.PlaySafe
         [SerializeField] private string appKey;
         [SerializeField] private float silenceThreshold = 0.02f;
 
+        public int sampleRate = 24000;
+        public int channelCount = 1;
+        public bool isUsingExistingUnityMic = false;
+
         [Header("Debug Information - Not For Editing Purposes")]
         [SerializeField, Tooltip("Indicates whether microphone permission has been granted.")]
         private bool hasPermission = false;
@@ -107,10 +115,25 @@ namespace _DL.PlaySafe
         private Stopwatch _lastRecording = new Stopwatch();
         private const int RecordingDurationSeconds = 10;
         private int _recordingIntermissionSeconds = 60;  // May be updated from remote config
+        
+        #if PHOTON_VOICE_DEFINED
+        private PhotonPlaySafeProcessor _photonPlaySafeProcessor;
+        #endif
+        
+        public float[] audioBufferFromExistingMic;
+
+        private int _sampleIndex = 0;
 
         #endregion
 
         #region Unity Lifecycle
+        private void Start() {
+            // Photon specific setup
+            #if PHOTON_VOICE_DEFINED
+            _photonPlaySafeProcessor = new PhotonPlaySafeProcessor();
+            _photonPlaySafeProcessor.playSafeManager = this;
+            #endif
+        }
 
         private void Update()
         {
@@ -153,7 +176,33 @@ namespace _DL.PlaySafe
 
         #endregion
 
+        #region Photon Specific
+        #if PHOTON_VOICE_DEFINED
+            // init PlaySafe once we set up photon voice; called from Photon's Recorder via SendMessage
+        public void PhotonVoiceCreated (PhotonVoiceCreatedParams voiceCreatedParams)
+        {
+            DLog.Log("Photon voice created, initializing PlaySafe", DLog.LogTypes.Chat);
+            playSafeManager.Initialize();
+            
+            var voice = voiceCreatedParams.Voice as LocalVoiceAudioFloat;
+            if (voice != null)
+            {
+                playSafeManager.channelCount = voice.Info.Channels;
+                playSafeManager.sampleRate = voice.Info.SamplingRate;
+                
+                voice.AddPostProcessor(_photonPlaySafeProcessor);
+            }
+        }
+        #endif
+
+        #endregion
+
         #region Microphone & Recording Helpers
+
+        public int GetRecordingDuration ()
+        {
+            return RecordingDurationSeconds;
+        }
 
         private bool HasMicrophonePermission()
         {
@@ -203,21 +252,79 @@ namespace _DL.PlaySafe
             if (GetMicrophoneDeviceCount() <= 0)
                 return;
 
-            string mic = GetDefaultMicrophone();
-            _audioClipRecording = Microphone.Start(mic, false, RecordingDurationSeconds, 16000); // 10 seconds at 16 kHz
+            if (!isUsingExistingUnityMic)
+            {
+                string mic = GetDefaultMicrophone();
+                _audioClipRecording =
+                    Microphone.Start(mic, false, RecordingDurationSeconds, 16000); // 10 seconds at 16 kHz
+            }
+            else
+            {
+                CreateNewBuffer();
+            }
+            
             _isRecording = true;
             _lastRecording.Restart();
             Debug.Log("PlaySafeManager: Recording started");
         }
+        
+        private void CreateNewBuffer ()
+        {
+            audioBufferFromExistingMic = new float[sampleRate * channelCount * RecordingDurationSeconds]; // 10 seconds of audio
+            _sampleIndex = 0;
+        }
+        
+        public void AppendToBuffer(float[] newData)
+        {
+            int newDataLength = newData.Length;
+            if (_sampleIndex + newDataLength < audioBufferFromExistingMic.Length)
+            {
+                System.Array.Copy(newData, 0, audioBufferFromExistingMic, _sampleIndex, newData.Length);
+                _sampleIndex += newDataLength;
+            }
+        }
+        
+        private AudioClip CreateAudioClip()
+        {
+            AudioClip clip = AudioClip.Create("RecordedAudio", audioBufferFromExistingMic.Length / channelCount, 
+                channelCount, sampleRate, false);
+            clip.SetData(audioBufferFromExistingMic, 0);
+            //Debug.LogWarning("Audioclip length: " + clip.length + ", sample rate: " + sampleRate + ", channels: " + channelCount);
+            return clip;
+        }
+
 
         private void StopRecording()
         {
             if (!_isRecording)
                 return;
 
-            Microphone.End(null);
+            if (isUsingExistingUnityMic)
+            {
+                _audioClipRecording = CreateAudioClip();
+                
+                // debug echo loopback
+                /* 
+                AudioSource audioSource = GetComponent<AudioSource>();
+                if (audioSource == null)
+                {
+                    audioSource = gameObject.AddComponent<AudioSource>();
+                }
+
+                audioSource.clip = _audioClipRecording;
+                audioSource.volume = 1f;
+                audioSource.spatialBlend = 0f;
+                audioSource.Play();
+                */
+            }
+            else
+            {
+                Microphone.End(null);
+            }
+
             StartCoroutine(SendAudioClipForAnalysisCoroutine(_audioClipRecording));
             _isRecording = false;
+            
             Debug.Log("PlaySafeManager: Recording stopped");
         }
         
@@ -331,8 +438,6 @@ namespace _DL.PlaySafe
             WWWForm form = new WWWForm();
             form.AddField("userId", telemetry.UserId);
             form.AddField("roomId", telemetry.RoomId);
-            form.AddField("language", telemetry.Language);
-            
             return form;
         }
 
@@ -384,9 +489,12 @@ namespace _DL.PlaySafe
                 if (response.Ok)
                 {
                     Recommendation recommendation = response.Data.Recommendation;
+                    DateTime serverTime = DateTime.Parse(response.Data.ServerTime, null, System.Globalization.DateTimeStyles.RoundtripKind);
+                    Debug.Log($"[ProcessModerationResponse] Server time: {serverTime}");
                     if (recommendation.HasViolation && recommendation.Actions.Count > 0)
                     {
-                        OnActionEvent?.Invoke(recommendation.Actions[0]);
+
+                        OnActionEvent?.Invoke(recommendation.Actions[0], serverTime);
                     }
                 }
                 else
@@ -445,11 +553,11 @@ namespace _DL.PlaySafe
             
             if (!hasFocus)
             {
-                StartCoroutine(EndSession(GetTelemetry().UserId));
+                // StartCoroutine(EndSession(GetTelemetry().UserId));
             }
             else
             {
-                StartCoroutine(StartSession(GetTelemetry().UserId));
+                // StartCoroutine(StartSession(GetTelemetry().UserId));
             }
         }
 
@@ -679,6 +787,41 @@ namespace _DL.PlaySafe
                     Debug.Log(www.downloadHandler.text);
                 }
             }
+        }                
+        /// <summary>
+        /// Gets the current status of a player including any active violations.
+        /// </summary>
+        /// <param name="playerUserId">The unique identifier for the player.</param>
+        public IEnumerator GetPlayerStatus(string playerUserId)
+        {
+            string url = playsafeBaseURL + "/player/status?userId=" + playerUserId;
+
+            using (UnityWebRequest www = UnityWebRequest.Get(url))
+            {
+                www.SetRequestHeader("Authorization", "Bearer " + appKey);
+                yield return www.SendWebRequest();
+
+                if (www.result != UnityWebRequest.Result.Success)
+                {
+                    Debug.LogError("GetPlayerStatus error: " + www.error);
+                    Debug.Log(www.downloadHandler.text);
+                }
+                else
+                {
+                    Debug.Log("Player status retrieved successfully");
+                    Debug.Log(www.downloadHandler.text);
+                    
+                    try
+                    {
+                        PlayerStatusResponse response = JsonConvert.DeserializeObject<PlayerStatusResponse>(www.downloadHandler.text);
+                    }
+                    catch (Exception e)
+                    {
+                        Debug.LogError("Could not parse player status response.");
+                        Debug.LogException(e);
+                    }
+                }
+            }
         }
 
         #endregion
@@ -702,3 +845,4 @@ namespace _DL.PlaySafe
         #endregion
     }
 }
+
