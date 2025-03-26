@@ -22,6 +22,10 @@ public class DataRecommendation
     // The recommendation data
     [JsonProperty("recommendation")]
     public Recommendation Recommendation { get; set; }
+    
+    // Server time
+    [JsonProperty("serverTime")]
+    public string ServerTime { get; set; }
 }
 
 public class Recommendation
