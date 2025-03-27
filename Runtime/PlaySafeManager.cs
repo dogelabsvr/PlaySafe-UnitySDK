@@ -15,8 +15,7 @@ namespace _DL.PlaySafe
 {
     public class PlaySafeManager : MonoBehaviour
     {
-        private const string PlaysafeBaseURL = "http://localhost:8787";
-        // private const string playsafeBaseURL = "https://dl-voice-ai.dogelabs.workers.dev";
+        private const string PlaysafeBaseURL = "https://dl-voice-ai.dogelabs.workers.dev";
         private const string VoiceModerationEndpoint = "/products/moderation";
         private const string ReportEndpoint = "/products/moderation";
         
@@ -838,7 +837,9 @@ namespace _DL.PlaySafe
                     _recordingIntermissionSeconds = samplingRate > 0.000001f
                         ? Mathf.Max(0, (int)((RecordingDurationSeconds / samplingRate) - RecordingDurationSeconds))
                         : int.MaxValue;
-                    _silenceThreshold = config.AudioSilenceThreshold ? config.AudioSilenceThreshold : _silenceThreshold;
+                    
+                    _silenceThreshold = config.AudioSilenceThreshold;
+                    Debug.Log($"Silence Threshold: {_silenceThreshold}");
                 }
                 else
                 {
