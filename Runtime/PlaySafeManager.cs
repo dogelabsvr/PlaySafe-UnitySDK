@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Diagnostics;
 using System.IO;
@@ -15,9 +15,10 @@ namespace _DL.PlaySafe
 {
     public class PlaySafeManager : MonoBehaviour
     {
-        private const string playsafeBaseURL = "https://dl-voice-ai.dogelabs.workers.dev";
-        private const string voiceModerationEndpoint = "/products/moderation";
-        private const string reportEndpoint = "/products/moderation";
+        private const string PlaysafeBaseURL = "http://localhost:8787";
+        // private const string playsafeBaseURL = "https://dl-voice-ai.dogelabs.workers.dev";
+        private const string VoiceModerationEndpoint = "/products/moderation";
+        private const string ReportEndpoint = "/products/moderation";
         
         #region Singleton & Initialization
 
@@ -42,6 +43,14 @@ namespace _DL.PlaySafe
         /// Called when an action is returned from voice moderation.
         /// </summary>
         public Action<ActionItem, DateTime> OnActionEvent { private get; set; }
+
+        // Session state management
+        private enum SessionState { Inactive, Starting, Active, Ending }
+        private SessionState _currentSessionState = SessionState.Inactive;
+        private string _currentUserId = null;
+        private Coroutine _activeSessionCoroutine = null;
+        private float _lastSessionChangeTime = 0f;
+        private const float MIN_SESSION_CHANGE_INTERVAL = 2.0f; // seconds
 
         /// <summary>
         /// Call this method to initialize the voice AI moderation system.
@@ -79,6 +88,8 @@ namespace _DL.PlaySafe
             }
             StartCoroutine(GetProductAIConfig());
             _lastRecording.Restart();
+            _currentSessionState = SessionState.Inactive;
+            _lastSessionChangeTime = 0f;
         }
 
         #endregion
@@ -459,12 +470,12 @@ namespace _DL.PlaySafe
             WWWForm form = SetupForm();
             form.AddBinaryData("audio", wavFileBytes, "audio.wav", "audio/wav");
 
-            yield return StartCoroutine(SendFormCoroutine(voiceModerationEndpoint, form));
+            yield return StartCoroutine(SendFormCoroutine(VoiceModerationEndpoint, form));
         }
 
         private IEnumerator SendFormCoroutine(string endpoint, WWWForm form)
         {
-            using (UnityWebRequest www = UnityWebRequest.Post(playsafeBaseURL + endpoint, form))
+            using (UnityWebRequest www = UnityWebRequest.Post(PlaysafeBaseURL + endpoint, form))
             {
                 www.SetRequestHeader("Authorization", "Bearer " + appKey);
                 yield return www.SendWebRequest();
@@ -522,7 +533,7 @@ namespace _DL.PlaySafe
 
             string json = JsonConvert.SerializeObject(reportRequest);
             byte[] jsonToSend = new System.Text.UTF8Encoding().GetBytes(json);
-            string url = playsafeBaseURL + reportEndpoint + "/" + eventType;
+            string url = PlaysafeBaseURL + ReportEndpoint + "/" + eventType;
 
             UnityWebRequest www = new UnityWebRequest(url, "POST");
             www.uploadHandler = new UploadHandlerRaw(jsonToSend);
@@ -553,11 +564,11 @@ namespace _DL.PlaySafe
             
             if (!hasFocus)
             {
-                // StartCoroutine(EndSession(GetTelemetry().UserId));
+                TryEndSession(GetTelemetry().UserId);
             }
             else
             {
-                // StartCoroutine(StartSession(GetTelemetry().UserId));
+                TryStartSession(GetTelemetry().UserId);
             }
         }
 
@@ -567,24 +578,117 @@ namespace _DL.PlaySafe
             {
                 return;
             }
+            
             if (isPaused)
             {
-                StartCoroutine(EndSession(GetTelemetry().UserId));
+                TryEndSession(GetTelemetry().UserId);
             }
             else
             {
-                StartCoroutine(StartSession(GetTelemetry().UserId));
+                TryStartSession(GetTelemetry().UserId);
             }
         }
 
+        // Helper method to check if we can change session state
+        private bool CanChangeSessionState()
+        {
+            if (Time.time - _lastSessionChangeTime < MIN_SESSION_CHANGE_INTERVAL)
+            {
+                Debug.Log("PlaySafeManager: Session state change too frequent, ignoring request");
+                return false;
+            }
+                
+            _lastSessionChangeTime = Time.time;
+            return true;
+        }
+
+        // Public methods to safely trigger session changes
+        public void TryStartSession(string playerUserId)
+        {
+            if (string.IsNullOrEmpty(playerUserId))
+            {
+                Debug.LogError("PlaySafeManager: Cannot start session with null or empty user ID");
+                return;
+            }
+
+            // Check if we're already in the desired state or transitioning to it
+            if (_currentSessionState == SessionState.Active || _currentSessionState == SessionState.Starting)
+            {
+                if (_currentUserId == playerUserId)
+                {
+                    Debug.Log("PlaySafeManager: Session already active or starting for this user");
+                    return;
+                }
+                else
+                {
+                    Debug.Log("Different user ending current session");
+                    // Different user, end current session first
+                    TryEndSession(_currentUserId);
+                }
+            }
+
+            // Check cooldown period
+            if (!CanChangeSessionState())
+                return;
+
+            // Cancel any active session coroutine
+            if (_activeSessionCoroutine != null)
+            {
+                StopCoroutine(_activeSessionCoroutine);
+                _activeSessionCoroutine = null;
+            }
+
+            // Start new session
+            _currentSessionState = SessionState.Starting;
+            _currentUserId = playerUserId;
+            _activeSessionCoroutine = StartCoroutine(StartSessionInternal(playerUserId));
+        }
+
+        public void TryEndSession(string playerUserId)
+        {
+            if (string.IsNullOrEmpty(playerUserId))
+            {
+                Debug.LogError("PlaySafeManager: Cannot end session with null or empty user ID");
+                return;
+            }
+
+            // Check if we're already in the desired state or transitioning to it
+            if (_currentSessionState == SessionState.Inactive || _currentSessionState == SessionState.Ending)
+            {
+                Debug.Log("PlaySafeManager: Session already inactive or ending");
+                return;
+            }
+
+            // Check if this is for a different user than the current session
+            if (_currentUserId != playerUserId)
+            {
+                Debug.LogWarning($"PlaySafeManager: Attempting to end session for user {playerUserId} but active session is for {_currentUserId}");
+                return;
+            }
+
+            // Check cooldown period
+            if (!CanChangeSessionState())
+                return;
+
+            // Cancel any active session coroutine
+            if (_activeSessionCoroutine != null)
+            {
+                StopCoroutine(_activeSessionCoroutine);
+                _activeSessionCoroutine = null;
+            }
+
+            // End session
+            _currentSessionState = SessionState.Ending;
+            _activeSessionCoroutine = StartCoroutine(EndSessionInternal(playerUserId));
+        }
 
         /// <summary>
         /// Starts a new session. If a session is already running (and was not properly ended), it is automatically ended and marked as decayed.
         /// </summary>
         /// <param name="playerUserId">The unique identifier for the player.</param>
-        public IEnumerator StartSession(string playerUserId)
+        private IEnumerator StartSessionInternal(string playerUserId)
         {
-            string url = playsafeBaseURL + "/player/session/start";
+            string url = PlaysafeBaseURL + "/player/session/start";
             var requestBody = new
             {
                 playerUserId = playerUserId
@@ -606,12 +710,16 @@ namespace _DL.PlaySafe
                 {
                     Debug.LogError("StartSession error: " + www.error);
                     Debug.Log(www.downloadHandler.text);
+                    _currentSessionState = SessionState.Inactive;
                 }
                 else
                 {
                     Debug.Log("Session started successfully");
                     Debug.Log(www.downloadHandler.text);
+                    _currentSessionState = SessionState.Active;
                 }
+                
+                _activeSessionCoroutine = null;
             }
         }
 
@@ -619,9 +727,9 @@ namespace _DL.PlaySafe
         /// Ends the current session. This call always returns a consistent response even if no session was active.
         /// </summary>
         /// <param name="playerUserId">The unique identifier for the player.</param>
-        public IEnumerator EndSession(string playerUserId)
+        private IEnumerator EndSessionInternal(string playerUserId)
         {
-            string url = playsafeBaseURL + "/player/session/end";
+            string url = PlaysafeBaseURL + "/player/session/end";
             var requestBody = new
             {
                 playerUserId = playerUserId
@@ -649,13 +757,57 @@ namespace _DL.PlaySafe
                     Debug.Log("Session ended successfully");
                     Debug.Log(www.downloadHandler.text);
                 }
+                
+                _currentSessionState = SessionState.Inactive;
+                _currentUserId = null;
+                _activeSessionCoroutine = null;
             }
         }
 
+        // Public methods to maintain backward compatibility
+        /// <summary>
+        /// Starts a new session. If a session is already running (and was not properly ended), it is automatically ended and marked as decayed.
+        /// </summary>
+        /// <param name="playerUserId">The unique identifier for the player.</param>
+        public IEnumerator StartSession(string playerUserId)
+        {
+            TryStartSession(playerUserId);
+            
+            // Wait until the session is no longer in Starting state
+            while (_currentSessionState == SessionState.Starting)
+            {
+                yield return null;
+            }
+            
+            // Return success based on final state
+            yield return _currentSessionState == SessionState.Active;
+        }
+
+        /// <summary>
+        /// Ends the current session. This call always returns a consistent response even if no session was active.
+        /// </summary>
+        /// <param name="playerUserId">The unique identifier for the player.</param>
+        public IEnumerator EndSession(string playerUserId)
+        {
+            TryEndSession(playerUserId);
+            
+            // Wait until the session is no longer in Ending state
+            while (_currentSessionState == SessionState.Ending)
+            {
+                yield return null;
+            }
+            
+            // Return success based on final state
+            yield return _currentSessionState == SessionState.Inactive;
+        }
+
+        #endregion
+
+        #region Web API Calls
 
         private IEnumerator GetProductAIConfig()
         {
-            using (UnityWebRequest www = UnityWebRequest.Get(playsafeBaseURL + "/remote-config"))
+            using (UnityWebRequest www = UnityWebRequest.Get(PlaysafeBaseURL + "/remote-config"))
             {
                 www.SetRequestHeader("Authorization", "Bearer " + appKey);
                 yield return www.SendWebRequest();
@@ -702,7 +854,7 @@ namespace _DL.PlaySafe
         /// </summary>
         public IEnumerator GetActivePoll()
         {
-            string url = playsafeBaseURL + "/sensei/poll/active";
+            string url = PlaysafeBaseURL + "/sensei/poll/active";
 
             using (UnityWebRequest www = UnityWebRequest.Get(url))
             {
@@ -730,7 +882,7 @@ namespace _DL.PlaySafe
         /// <param name="response">The user's response/vote</param>
         public IEnumerator CastVote(string pollId, string userId, string response)
         {
-            string url = playsafeBaseURL + "/sensei/poll/vote";
+            string url = PlaysafeBaseURL + "/sensei/poll/vote";
             var requestBody = new
             {
                 pollId = pollId,
@@ -769,7 +921,7 @@ namespace _DL.PlaySafe
         /// <param name="pollId">The ID of the poll to get results for</param>
         public IEnumerator GetPollResults(string pollId)
         {
-            string url = playsafeBaseURL + "/sensei/poll/results/" + pollId;
+            string url = PlaysafeBaseURL + "/sensei/poll/results/" + pollId;
 
             using (UnityWebRequest www = UnityWebRequest.Get(url))
             {
@@ -794,7 +946,7 @@ namespace _DL.PlaySafe
         /// <param name="playerUserId">The unique identifier for the player.</param>
         public IEnumerator GetPlayerStatus(string playerUserId)
         {
-            string url = playsafeBaseURL + "/player/status?userId=" + playerUserId;
+            string url = PlaysafeBaseURL + "/player/status?userId=" + playerUserId;
 
             using (UnityWebRequest www = UnityWebRequest.Get(url))
             {
@@ -841,8 +993,6 @@ namespace _DL.PlaySafe
             public string Language;
         }
 
-
         #endregion
     }
 }
-
