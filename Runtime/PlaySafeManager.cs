@@ -15,8 +15,7 @@ namespace _DL.PlaySafe
 {
     public class PlaySafeManager : MonoBehaviour
     {
-        private const string PlaysafeBaseURL = "http://localhost:8787";
-        // private const string playsafeBaseURL = "https://dl-voice-ai.dogelabs.workers.dev";
+        private const string PlaysafeBaseURL = "https://dl-voice-ai.dogelabs.workers.dev";
         private const string VoiceModerationEndpoint = "/products/moderation";
         private const string ReportEndpoint = "/products/moderation";
         
@@ -99,7 +98,7 @@ namespace _DL.PlaySafe
         [Header("Configuration")]
         [SerializeField] private bool debugEnableRecord = false;
         [SerializeField] private string appKey;
-        [SerializeField] private float silenceThreshold = 0.02f;
+         private float _silenceThreshold = 0.02f;
 
         public int sampleRate = 24000;
         public int channelCount = 1;
@@ -363,9 +362,9 @@ namespace _DL.PlaySafe
 // Create a persistent MemoryStream once
         private MemoryStream reusableStream = new MemoryStream();
 
-        public (byte[] wavFileBytes, bool isSilent) AudioClipToWav(AudioClip clip)
+        public (byte[] wavFileBytes, bool isSilent) AudioClipToFile(AudioClip clip)
         {
-            if (clip == null)
+            if (!clip)
                 throw new ArgumentNullException(nameof(clip));
 
             // Reset the reusable MemoryStream.
@@ -383,6 +382,7 @@ namespace _DL.PlaySafe
             // Create a single byte array for the audio data.
             // Each sample will become 2 bytes (16 bits).
             byte[] audioBytes = new byte[sampleCount * sizeof(short)];
+            
             bool isSilent = true;
             float rescaleFactor = 32767f;
 
@@ -390,7 +390,8 @@ namespace _DL.PlaySafe
             for (int i = 0; i < sampleCount; i++)
             {
                 float sample = samples[i];
-                if (isSilent && Mathf.Abs(sample) > silenceThreshold)
+               
+                if (isSilent && Mathf.Abs(sample) > _silenceThreshold)
                 {
                     isSilent = false;
                 }
@@ -460,7 +461,7 @@ namespace _DL.PlaySafe
                 yield break;
             }
 
-            var (wavFileBytes, isSilent) = AudioClipToWav(clip);
+            var (wavFileBytes, isSilent) = AudioClipToFile(clip);
             if (isSilent)
             {
                 Debug.Log("PlaySafeManager: The AudioClip is silent. Skipping upload.");
@@ -836,6 +837,9 @@ namespace _DL.PlaySafe
                     _recordingIntermissionSeconds = samplingRate > 0.000001f
                         ? Mathf.Max(0, (int)((RecordingDurationSeconds / samplingRate) - RecordingDurationSeconds))
                         : int.MaxValue;
+                    
+                    _silenceThreshold = config.AudioSilenceThreshold;
+                    Debug.Log($"Silence Threshold: {_silenceThreshold}");
                 }
                 else
                 {

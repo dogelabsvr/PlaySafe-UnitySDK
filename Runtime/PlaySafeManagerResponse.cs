@@ -117,8 +117,8 @@ public class RemoteConfigVoiceAIData
     [JsonProperty("samplingRate")]
     public float SamplingRate { get; set; }
 
-    [JsonProperty("audioSilenceThresholdDb")]
-    public float AudioSilenceThresholdDb { get; set;}
+    [JsonProperty("audioSilenceThreshold")]
+    public float AudioSilenceThreshold { get; set;}
 
     [JsonProperty("playerStatsExpiryInDays")]
     public int PlayerStatsExpiryInDays { get; set; }
