@@ -10,6 +10,10 @@ using UnityEngine.Android;
 using UnityEngine.Networking;
 using UnityEngine.Serialization;
 using Debug = UnityEngine.Debug;
+#if PHOTON_VOICE_DEFINED
+    using Photon.Voice;
+    using Photon.Voice.Unity;
+#endif
 
 namespace _DL.PlaySafe
 {
@@ -131,6 +135,7 @@ namespace _DL.PlaySafe
         #endif
         
         public float[] audioBufferFromExistingMic;
+        private readonly object _bufferLock = new object();
 
         private int _sampleIndex = 0;
 
@@ -191,14 +196,14 @@ namespace _DL.PlaySafe
             // init PlaySafe once we set up photon voice; called from Photon's Recorder via SendMessage
         public void PhotonVoiceCreated (PhotonVoiceCreatedParams voiceCreatedParams)
         {
-            DLog.Log("Photon voice created, initializing PlaySafe", DLog.LogTypes.Chat);
-            playSafeManager.Initialize();
+            Debug.Log("Photon voice created, initializing PlaySafe");
+            Initialize();
             
             var voice = voiceCreatedParams.Voice as LocalVoiceAudioFloat;
             if (voice != null)
             {
-                playSafeManager.channelCount = voice.Info.Channels;
-                playSafeManager.sampleRate = voice.Info.SamplingRate;
+                channelCount = voice.Info.Channels;
+                sampleRate = voice.Info.SamplingRate;
                 
                 voice.AddPostProcessor(_photonPlaySafeProcessor);
             }
@@ -286,16 +291,25 @@ namespace _DL.PlaySafe
         
         public void AppendToBuffer(float[] newData)
         {
-            int newDataLength = newData.Length;
-            if (_sampleIndex + newDataLength < audioBufferFromExistingMic.Length)
+            lock (_bufferLock)
             {
-                System.Array.Copy(newData, 0, audioBufferFromExistingMic, _sampleIndex, newData.Length);
-                _sampleIndex += newDataLength;
+                if (audioBufferFromExistingMic == null) return;
+                
+                int newDataLength = newData.Length;
+                if (newDataLength > 0 && _sampleIndex + newDataLength < audioBufferFromExistingMic.Length)
+                {
+                    System.Array.Copy(newData, 0, audioBufferFromExistingMic, _sampleIndex, newData.Length);
+                    _sampleIndex += newDataLength;
+                }
             }
         }
         
         private AudioClip CreateAudioClip()
         {
+            if (channelCount < 1) return null;
+            if (audioBufferFromExistingMic == null) return null;
+            if (audioBufferFromExistingMic.Length == 0) return null;
+            
             AudioClip clip = AudioClip.Create("RecordedAudio", audioBufferFromExistingMic.Length / channelCount, 
                 channelCount, sampleRate, false);
             clip.SetData(audioBufferFromExistingMic, 0);
@@ -573,20 +587,35 @@ namespace _DL.PlaySafe
             }
         }
 
-        private void OnApplicationPause(bool isPaused)
+        private void OnApplicationPause (bool isPaused)
         {
+            if (!isActiveAndEnabled || !gameObject.activeInHierarchy)
+            {
+                return;
+            }
+
             if (GetTelemetry == null || GetTelemetry() == null)
             {
                 return;
             }
             
-            if (isPaused)
+            StartCoroutine(PauseHandler(isPaused));
+        }
+        
+        private IEnumerator PauseHandler (bool isPaused)
+        {
+            yield return null; // Let Unity settle down a bit
+            string userId = GetTelemetry().UserId;
+            if (!string.IsNullOrEmpty(userId))
             {
-                TryEndSession(GetTelemetry().UserId);
-            }
-            else
-            {
-                TryStartSession(GetTelemetry().UserId);
+                if (isPaused)
+                {
+                    TryEndSession(GetTelemetry().UserId);
+                }
+                else
+                {
+                    TryStartSession(GetTelemetry().UserId);
+                }
             }
         }
 
