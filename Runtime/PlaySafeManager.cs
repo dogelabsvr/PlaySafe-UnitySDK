@@ -3,13 +3,16 @@ using System.Collections;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
-using System.Threading.Tasks;
 using Newtonsoft.Json;
 using UnityEngine;
 using UnityEngine.Android;
 using UnityEngine.Networking;
 using UnityEngine.Serialization;
 using Debug = UnityEngine.Debug;
+#if PHOTON_VOICE_DEFINED
+    using Photon.Voice;
+    using Photon.Voice.Unity;
+#endif
 
 namespace _DL.PlaySafe
 {
@@ -191,14 +194,14 @@ namespace _DL.PlaySafe
             // init PlaySafe once we set up photon voice; called from Photon's Recorder via SendMessage
         public void PhotonVoiceCreated (PhotonVoiceCreatedParams voiceCreatedParams)
         {
-            DLog.Log("Photon voice created, initializing PlaySafe", DLog.LogTypes.Chat);
-            playSafeManager.Initialize();
-            
+            Debug.Log("Photon voice created, initializing PlaySafe");
+            Initialize();
+
             var voice = voiceCreatedParams.Voice as LocalVoiceAudioFloat;
             if (voice != null)
             {
-                playSafeManager.channelCount = voice.Info.Channels;
-                playSafeManager.sampleRate = voice.Info.SamplingRate;
+                channelCount = voice.Info.Channels;
+                sampleRate = voice.Info.SamplingRate;
                 
                 voice.AddPostProcessor(_photonPlaySafeProcessor);
             }
@@ -286,8 +289,10 @@ namespace _DL.PlaySafe
         
         public void AppendToBuffer(float[] newData)
         {
+            if (audioBufferFromExistingMic == null) return;
+            
             int newDataLength = newData.Length;
-            if (_sampleIndex + newDataLength < audioBufferFromExistingMic.Length)
+            if (newDataLength > 0 && _sampleIndex + newDataLength < audioBufferFromExistingMic.Length)
             {
                 System.Array.Copy(newData, 0, audioBufferFromExistingMic, _sampleIndex, newData.Length);
                 _sampleIndex += newDataLength;
@@ -296,10 +301,14 @@ namespace _DL.PlaySafe
         
         private AudioClip CreateAudioClip()
         {
+            if (channelCount < 1) return null;
+            if (audioBufferFromExistingMic == null) return null;
+            if (audioBufferFromExistingMic.Length == 0) return null;
+            
             AudioClip clip = AudioClip.Create("RecordedAudio", audioBufferFromExistingMic.Length / channelCount, 
                 channelCount, sampleRate, false);
             clip.SetData(audioBufferFromExistingMic, 0);
-            //Debug.LogWarning("Audioclip length: " + clip.length + ", sample rate: " + sampleRate + ", channels: " + channelCount);
+            //Debug.LogWarning("PlaySafeManager Audioclip length: " + clip.length + ", sample rate: " + sampleRate + ", channels: " + channelCount);
             return clip;
         }
 
@@ -573,13 +582,41 @@ namespace _DL.PlaySafe
             }
         }
 
-        private void OnApplicationPause(bool isPaused)
+        private void OnApplicationPause (bool isPaused)
         {
+            /*
+            if (!isActiveAndEnabled || !gameObject.activeInHierarchy)
+            {
+                return;
+            }
+
             if (GetTelemetry == null || GetTelemetry() == null)
             {
                 return;
             }
             
+            StartCoroutine(PauseHandler(isPaused));
+            */
+            
+            if (GetTelemetry == null || GetTelemetry() == null)
+            {
+                return;
+            }
+            
+            if (isPaused)
+            {
+                TryEndSession(GetTelemetry().UserId);
+            }
+            else
+            {
+                TryStartSession(GetTelemetry().UserId);
+            }
+        }
+        
+        private IEnumerator PauseHandler (bool isPaused)
+        {
+            yield return null; // Let Unity settle down a bit
+
             if (isPaused)
             {
                 TryEndSession(GetTelemetry().UserId);

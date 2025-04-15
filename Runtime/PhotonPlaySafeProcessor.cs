@@ -2,8 +2,6 @@
 using System;
 using _DL.PlaySafe;
 using Photon.Voice;
-using Photon.Voice.Unity;
-using UnityEngine;
 
 public class PhotonPlaySafeProcessor : IProcessor<float>
 {
@@ -11,7 +9,7 @@ public class PhotonPlaySafeProcessor : IProcessor<float>
   
   public float[] Process (float[] buf)
   {
-    if (playSafeManager.audioBufferFromExistingMic == null) return Array.Empty<float>();
+    if (!playSafeManager) return Array.Empty<float>();
     
     playSafeManager.AppendToBuffer(buf);
 
@@ -20,6 +18,7 @@ public class PhotonPlaySafeProcessor : IProcessor<float>
 
   public void Dispose ()
   {
+    if (!playSafeManager) return;
     playSafeManager.audioBufferFromExistingMic = null;
   }
 }
