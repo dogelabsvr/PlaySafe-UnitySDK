@@ -1,6 +1,6 @@
 {
   "name": "com.dogelabsvr.playsafe",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "displayName": "PlaySafe",
   "description": "PlaySafe is an AI-powered suite of tools for video game moderation and character intelligence.",
   "unity": "2021.3",

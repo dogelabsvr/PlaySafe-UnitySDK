@@ -80,6 +80,7 @@ namespace _DL.PlaySafe
 
             _isInitialized = true;
             Setup();
+            Debug.Log($"<color=#00FF00>PlaySafeManager is running!</color>");
         }
 
         private void Setup()
