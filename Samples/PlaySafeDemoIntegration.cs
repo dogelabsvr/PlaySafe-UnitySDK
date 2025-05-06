@@ -2,7 +2,7 @@ using System;
 using _DL.PlaySafe;
 using UnityEngine;
 
-public class DemoPlaySafeIntegration : MonoBehaviour
+public class PlaySafeDemoIntegration : MonoBehaviour
 {
     [SerializeField, Tooltip("The PlaySafeManager component to use for the demo.") ] PlaySafeManager playSafeManager;
     void Start()
