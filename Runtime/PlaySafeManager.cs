@@ -158,8 +158,16 @@ namespace _DL.PlaySafe
 
             if (!HasMicrophonePermission())
                 return;
-
-            if (ShouldRecord())
+			
+			
+			if(_isRecording && !CanRecord())
+			{ 
+				bool shouldSendAudioForProcessing = _lastRecording.Elapsed.TotalSeconds > RecordingDurationSeconds;
+                Debug.Log($"<color=#FF0000>PlaySafeManager: Recording stopped because player muted. Time elapsed: {_lastRecording.Elapsed.TotalSeconds:F2}s. Sending for processing: {shouldSendAudioForProcessing}</color>");
+                
+				StopRecording(shouldSendAudioForProcessing);
+			}
+            else if (ShouldRecord())
             {
                 StartRecording();
             }
@@ -314,7 +322,7 @@ namespace _DL.PlaySafe
         }
 
 
-        private void StopRecording()
+        private void StopRecording(bool shouldStartCoroutine = true)
         {
             if (!_isRecording)
                 return;
@@ -342,7 +350,11 @@ namespace _DL.PlaySafe
                 Microphone.End(null);
             }
 
-            StartCoroutine(SendAudioClipForAnalysisCoroutine(_audioClipRecording));
+
+			if(shouldStartCoroutine) {
+            	StartCoroutine(SendAudioClipForAnalysisCoroutine(_audioClipRecording));
+			}
+
             _isRecording = false;
             
             Debug.Log("PlaySafeManager: Recording stopped");
