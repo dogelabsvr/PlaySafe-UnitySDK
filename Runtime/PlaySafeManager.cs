@@ -160,7 +160,7 @@ namespace _DL.PlaySafe
                 return;
 			
 			
-			if(_isRecording && !CanRecord())
+			if(_isRecording && (!CanRecord() && !Application.isEditor))
 			{ 
 				bool shouldSendAudioForProcessing = _lastRecording.Elapsed.TotalSeconds > RecordingDurationSeconds;
                 Debug.Log($"<color=#FF0000>PlaySafeManager: Recording stopped because player muted. Time elapsed: {_lastRecording.Elapsed.TotalSeconds:F2}s. Sending for processing: {shouldSendAudioForProcessing}</color>");
