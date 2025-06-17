@@ -858,7 +858,7 @@ namespace _DL.PlaySafe
 
         private IEnumerator GetProductAIConfig()
         {
-            using (UnityWebRequest www = UnityWebRequest.Get(PlaysafeBaseURL + "/remote-config"))
+            using (UnityWebRequest www = UnityWebRequest.Get(PlaysafeBaseURL + "/remote-config?playerUserId=" + GetTelemetry().UserId))
             {
                 www.SetRequestHeader("Authorization", "Bearer " + appKey);
                 yield return www.SendWebRequest();
