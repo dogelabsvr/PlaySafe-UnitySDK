@@ -4,10 +4,14 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 using Newtonsoft.Json;
+using Unity.Burst;
+using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
+using Unity.Jobs;
+using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.Android;
 using UnityEngine.Networking;
-using UnityEngine.Serialization;
 using Debug = UnityEngine.Debug;
 #if PHOTON_VOICE_DEFINED
     using Photon.Voice;
@@ -351,7 +355,7 @@ namespace _DL.PlaySafe
             }
 
 
-			if(shouldStartCoroutine) {
+			if(shouldStartCoroutine && _hasFocus) {
             	StartCoroutine(SendAudioClipForAnalysisCoroutine(_audioClipRecording));
 			}
 
@@ -386,53 +390,78 @@ namespace _DL.PlaySafe
 
         public (byte[] wavFileBytes, bool isSilent) AudioClipToFile(AudioClip clip)
         {
-            if (!clip)
-                throw new ArgumentNullException(nameof(clip));
+            if (clip == null) throw new System.ArgumentNullException(nameof(clip));
 
-            // Reset the reusable MemoryStream.
+            // reset the stream
             reusableStream.SetLength(0);
             reusableStream.Position = 0;
 
             int sampleCount = clip.samples * clip.channels;
-            // Reserve header space (44 bytes) for the WAV header.
             reusableStream.Write(new byte[44], 0, 44);
 
-            // Get the audio samples.
-            float[] samples = new float[sampleCount];
+            var samples = new NativeArray<float>(sampleCount, Allocator.TempJob);
+            var audioBytes = new NativeArray<byte>(sampleCount * sizeof(short), Allocator.TempJob);
+            var silentRef = new NativeReference<bool>(Allocator.TempJob);
             clip.GetData(samples, 0);
+            silentRef.Value = true;
 
-            // Create a single byte array for the audio data.
-            // Each sample will become 2 bytes (16 bits).
-            byte[] audioBytes = new byte[sampleCount * sizeof(short)];
-            
-            bool isSilent = true;
-            float rescaleFactor = 32767f;
-
-            // Convert each sample directly to bytes.
-            for (int i = 0; i < sampleCount; i++)
+            // schedule the conversion + silence‐check job
+            var job = new ConvertToPcm16Job
             {
-                float sample = samples[i];
-               
-                if (isSilent && Mathf.Abs(sample) > _silenceThreshold)
-                {
-                    isSilent = false;
-                }
-                short intSample = (short)(sample * rescaleFactor);
-                // Write in little-endian order.
-                audioBytes[2 * i] = (byte)(intSample & 0xFF);
-                audioBytes[2 * i + 1] = (byte)((intSample >> 8) & 0xFF);
-            }
+                samples = samples,
+                audioBytes = audioBytes,
+                rescaleFactor = 32767f,
+                isSilent = silentRef,
+                silenceThreshold = _silenceThreshold
+            };
+            JobHandle h = job.Schedule();
+            h.Complete();
 
-            // Write the converted audio data to the stream.
-            reusableStream.Write(audioBytes, 0, audioBytes.Length);
-
-            // Write the WAV header at the beginning.
+            reusableStream.Write(audioBytes.AsReadOnlySpan());
             reusableStream.Position = 0;
             WriteWavHeader(reusableStream, clip, audioBytes.Length);
 
-            // Return the complete byte array and the silence flag.
-            byte[] result = reusableStream.ToArray();
-            return (result, isSilent);
+            bool isSilent = silentRef.Value;
+
+            silentRef.Dispose();
+            samples.Dispose();
+            audioBytes.Dispose();
+            // return the byte array and the silence flag
+
+            return (reusableStream.ToArray(), isSilent);
+        }
+
+        [BurstCompile]
+        struct ConvertToPcm16Job : IJob
+        {
+            [ReadOnly] public NativeArray<float> samples;
+            public NativeArray<byte> audioBytes;
+            public float rescaleFactor;
+            public float silenceThreshold;
+
+            //Allow parallel writes because they are all just trying to set the value to false
+            [NativeDisableParallelForRestriction]
+            [NativeDisableContainerSafetyRestriction]
+            public NativeReference<bool> isSilent;
+
+            public void Execute()
+            {
+                int length = samples.Length;
+                for (int i = 0; i < length; i++)
+                {
+                    float sample = samples[i];
+
+                    // if any sample exceeds threshold, mark as non-silent
+                    if (math.abs(sample) > silenceThreshold)
+                        isSilent.Value = false;
+
+                    // pack float → 16-bit PCM
+                    short s = (short)(sample * rescaleFactor);
+                    int idx2 = i * 2;
+                    audioBytes[idx2] = (byte)(s & 0xFF);
+                    audioBytes[idx2 + 1] = (byte)((s >> 8) & 0xFF);
+                }
+            }
         }
 
 
@@ -578,8 +607,10 @@ namespace _DL.PlaySafe
             }
         }
 
+        private bool _hasFocus = false;
         private void OnApplicationFocus(bool hasFocus)
         {
+            _hasFocus = hasFocus;
             if (GetTelemetry == null || GetTelemetry() == null)
             {
                 return;
