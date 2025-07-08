@@ -9,7 +9,10 @@
   "changelogUrl": "https://docs.playsafe.ai/unity-sdk/changelog",
   "licensesUrl": "https://docs.playsafe.ai/unity-sdk/licenses",
   "dependencies": {
-    "com.unity.nuget.newtonsoft-json": "3.2.1"
+    "com.unity.nuget.newtonsoft-json": "3.2.1",
+    "com.unity.mathematics": "1.3.2",
+    "com.unity.burst": "1.8.21",
+    "com.unity.collections ": "2.5.7"
   },
   "keywords": [
     "moderation",
