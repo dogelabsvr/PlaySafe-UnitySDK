@@ -22,6 +22,9 @@ namespace _DL.PlaySafe
 {
     public class PlaySafeManager : MonoBehaviour
     {
+        [Header("Logging")]
+        [SerializeField] private PlaySafeLogLevel logLevel = PlaySafeLogLevel.Info;
+        
         private const string PlaysafeBaseURL = "https://dl-voice-ai.dogelabs.workers.dev";
         private const string VoiceModerationEndpoint = "/products/moderation";
         private const string ReportEndpoint = "/products/moderation";
@@ -1093,9 +1096,6 @@ namespace _DL.PlaySafe
             Info    = 4,   // + Log (regular)
             Verbose = 5    // + super-noisy traces
         }
-
-        [Header("Logging")]
-        [SerializeField] private PlaySafeLogLevel logLevel = PlaySafeLogLevel.Info;
 
         public PlaySafeLogLevel GetLogLevel()
         {
