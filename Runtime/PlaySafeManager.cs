@@ -66,32 +66,32 @@ namespace _DL.PlaySafe
             Instance = this;
             if (CanRecord == null)
             {
-                Debug.LogError("Must set CanRecord delegate before initializing");
+                LogError("Must set CanRecord delegate before initializing");
                 return;
             }
 
             if (GetTelemetry == null)
             {
-                Debug.LogError("Must set GetTelemetry delegate before initializing");
+                LogError("Must set GetTelemetry delegate before initializing");
                 return;
             }
 
             if (_isInitialized)
             {
-                Debug.LogError("PlaySafeManager is already initialized");
+                LogError("PlaySafeManager is already initialized");
                 return;
             }
 
             _isInitialized = true;
             Setup();
-            Debug.Log($"<color=#00FF00>PlaySafeManager is running!</color>");
+            Log($"<color=#00FF00>PlaySafeManager is running!</color>");
         }
 
         private void Setup()
         {
             if (GetMicrophoneDeviceCount() <= 0)
             {
-                Debug.LogError("PlaySafeManager: No microphone found");
+                LogError("PlaySafeManager: No microphone found");
             }
             StartCoroutine(GetProductAIConfig());
             _lastRecording.Restart();
@@ -167,7 +167,7 @@ namespace _DL.PlaySafe
 			if(_isRecording && (!CanRecord() && !Application.isEditor))
 			{ 
 				bool shouldSendAudioForProcessing = _lastRecording.Elapsed.TotalSeconds > RecordingDurationSeconds;
-                Debug.Log($"<color=#FF0000>PlaySafeManager: Recording stopped because player muted. Time elapsed: {_lastRecording.Elapsed.TotalSeconds:F2}s. Sending for processing: {shouldSendAudioForProcessing}</color>");
+                Log($"<color=#FF0000>PlaySafeManager: Recording stopped because player muted. Time elapsed: {_lastRecording.Elapsed.TotalSeconds:F2}s. Sending for processing: {shouldSendAudioForProcessing}</color>");
                 
 				StopRecording(shouldSendAudioForProcessing);
 			}
@@ -207,7 +207,7 @@ namespace _DL.PlaySafe
             // init PlaySafe once we set up photon voice; called from Photon's Recorder via SendMessage
         public void PhotonVoiceCreated (PhotonVoiceCreatedParams voiceCreatedParams)
         {
-            Debug.Log("Photon voice created, initializing PlaySafe");
+            Log("Photon voice created, initializing PlaySafe");
             Initialize();
 
             var voice = voiceCreatedParams.Voice as LocalVoiceAudioFloat;
@@ -291,7 +291,7 @@ namespace _DL.PlaySafe
             
             _isRecording = true;
             _lastRecording.Restart();
-            Debug.Log("PlaySafeManager: Recording started");
+            Log("PlaySafeManager: Recording started");
         }
         
         private void CreateNewBuffer ()
@@ -321,7 +321,7 @@ namespace _DL.PlaySafe
             AudioClip clip = AudioClip.Create("RecordedAudio", audioBufferFromExistingMic.Length / channelCount, 
                 channelCount, sampleRate, false);
             clip.SetData(audioBufferFromExistingMic, 0);
-            //Debug.LogWarning("PlaySafeManager Audioclip length: " + clip.length + ", sample rate: " + sampleRate + ", channels: " + channelCount);
+            LogWarning("PlaySafeManager Audioclip length: " + clip.length + ", sample rate: " + sampleRate + ", channels: " + channelCount);
             return clip;
         }
 
@@ -361,7 +361,7 @@ namespace _DL.PlaySafe
 
             _isRecording = false;
             
-            Debug.Log("PlaySafeManager: Recording stopped");
+            Log("PlaySafeManager: Recording stopped");
         }
         
         public void _ToggleRecording()
@@ -510,14 +510,14 @@ namespace _DL.PlaySafe
         {
             if (clip == null)
             {
-                Debug.LogError("PlaySafeManager: AudioClip is null.");
+                LogError("PlaySafeManager: AudioClip is null.");
                 yield break;
             }
 
             var (wavFileBytes, isSilent) = AudioClipToFile(clip);
             if (isSilent)
             {
-                Debug.Log("PlaySafeManager: The AudioClip is silent. Skipping upload.");
+                Log("PlaySafeManager: The AudioClip is silent. Skipping upload.");
                 yield break;
             }
             yield return WaitForEndOfFrame;
@@ -536,8 +536,8 @@ namespace _DL.PlaySafe
 
                 if (www.result != UnityWebRequest.Result.Success)
                 {
-                    Debug.LogError($"PlaySafeManager: {www.error}");
-                    Debug.Log(www.downloadHandler.text);
+                    LogError($"PlaySafeManager: {www.error}");
+                    Log(www.downloadHandler.text);
                 }
                 else
                 {
@@ -556,7 +556,7 @@ namespace _DL.PlaySafe
                 {
                     Recommendation recommendation = response.Data.Recommendation;
                     DateTime serverTime = DateTime.Parse(response.Data.ServerTime, null, System.Globalization.DateTimeStyles.RoundtripKind);
-                    Debug.Log($"[ProcessModerationResponse] Server time: {serverTime}");
+                    Log($"[ProcessModerationResponse] Server time: {serverTime}");
                     if (recommendation.HasViolation && recommendation.Actions.Count > 0)
                     {
 
@@ -565,13 +565,13 @@ namespace _DL.PlaySafe
                 }
                 else
                 {
-                    Debug.Log($"PlaySafeManager: Operation failed: {response.Message}");
+                    Log($"PlaySafeManager: Operation failed: {response.Message}");
                 }
             }
             catch (Exception e)
             {
-                Debug.LogError("PlaySafeManager: Could not parse moderation response.");
-                Debug.LogException(e);
+                LogError("PlaySafeManager: Could not parse moderation response."); 
+                LogException(e);
             }
         }
 
@@ -600,13 +600,13 @@ namespace _DL.PlaySafe
 
             if (www.result != UnityWebRequest.Result.Success)
             {
-                Debug.LogError("ReportUser error: " + www.error);
-                Debug.Log(www.downloadHandler.text);
+                LogError("ReportUser error: " + www.error);
+                Log(www.downloadHandler.text);
             }
             else
             {
-                Debug.Log("PlaySafeManager: Report upload complete!");
-                Debug.Log(www.downloadHandler.text);
+                Log("PlaySafeManager: Report upload complete!");
+                Log(www.downloadHandler.text);
             }
         }
 
@@ -679,7 +679,7 @@ namespace _DL.PlaySafe
         {
             if (Time.time - _lastSessionChangeTime < MIN_SESSION_CHANGE_INTERVAL)
             {
-                Debug.Log("PlaySafeManager: Session state change too frequent, ignoring request");
+                Log("PlaySafeManager: Session state change too frequent, ignoring request");
                 return false;
             }
                 
@@ -692,7 +692,7 @@ namespace _DL.PlaySafe
         {
             if (string.IsNullOrEmpty(playerUserId))
             {
-                Debug.LogError("PlaySafeManager: Cannot start session with null or empty user ID");
+                LogError("PlaySafeManager: Cannot start session with null or empty user ID");
                 return;
             }
 
@@ -701,12 +701,12 @@ namespace _DL.PlaySafe
             {
                 if (_currentUserId == playerUserId)
                 {
-                    Debug.Log("PlaySafeManager: Session already active or starting for this user");
+                    Log("PlaySafeManager: Session already active or starting for this user");
                     return;
                 }
                 else
                 {
-                    Debug.Log("Different user ending current session");
+                    Log("Different user ending current session");
                     // Different user, end current session first
                     TryEndSession(_currentUserId);
                 }
@@ -733,21 +733,21 @@ namespace _DL.PlaySafe
         {
             if (string.IsNullOrEmpty(playerUserId))
             {
-                Debug.LogError("PlaySafeManager: Cannot end session with null or empty user ID");
+                LogError("PlaySafeManager: Cannot end session with null or empty user ID");
                 return;
             }
 
             // Check if we're already in the desired state or transitioning to it
             if (_currentSessionState == SessionState.Inactive || _currentSessionState == SessionState.Ending)
             {
-                Debug.Log("PlaySafeManager: Session already inactive or ending");
+                Log("PlaySafeManager: Session already inactive or ending");
                 return;
             }
 
             // Check if this is for a different user than the current session
             if (_currentUserId != playerUserId)
             {
-                Debug.LogWarning($"PlaySafeManager: Attempting to end session for user {playerUserId} but active session is for {_currentUserId}");
+                LogWarning($"PlaySafeManager: Attempting to end session for user {playerUserId} but active session is for {_currentUserId}");
                 return;
             }
 
@@ -793,14 +793,14 @@ namespace _DL.PlaySafe
 
                 if (www.result != UnityWebRequest.Result.Success)
                 {
-                    Debug.LogError("StartSession error: " + www.error);
-                    Debug.Log(www.downloadHandler.text);
+                    LogError("StartSession error: " + www.error);
+                    Log(www.downloadHandler.text);
                     _currentSessionState = SessionState.Inactive;
                 }
                 else
                 {
-                    Debug.Log("Session started successfully");
-                    Debug.Log(www.downloadHandler.text);
+                    Log("Session started successfully");
+                    Log(www.downloadHandler.text);
                     _currentSessionState = SessionState.Active;
                 }
                 
@@ -834,13 +834,13 @@ namespace _DL.PlaySafe
 
                 if (www.result != UnityWebRequest.Result.Success)
                 {
-                    Debug.LogError("EndSession error: " + www.error);
-                    Debug.Log(www.downloadHandler.text);
+                    LogError("EndSession error: " + www.error);
+                    Log(www.downloadHandler.text);
                 }
                 else
                 {
-                    Debug.Log("Session ended successfully");
-                    Debug.Log(www.downloadHandler.text);
+                    Log("Session ended successfully");
+                    Log(www.downloadHandler.text);
                 }
                 
                 _currentSessionState = SessionState.Inactive;
@@ -899,8 +899,8 @@ namespace _DL.PlaySafe
 
                 if (www.result != UnityWebRequest.Result.Success)
                 {
-                    Debug.LogError(www.error);
-                    Debug.Log(www.downloadHandler.text);
+                    LogError(www.error);
+                    Log(www.downloadHandler.text);
                 }
                 else
                 {
@@ -923,17 +923,17 @@ namespace _DL.PlaySafe
                         : int.MaxValue;
                     
                     _silenceThreshold = config.AudioSilenceThreshold;
-                    Debug.Log($"Silence Threshold: {_silenceThreshold}");
+                    Log($"Silence Threshold: {_silenceThreshold}");
                 }
                 else
                 {
-                    Debug.Log($"PlaySafeManager: Remote config failed: {response.Message}");
+                    Log($"PlaySafeManager: Remote config failed: {response.Message}");
                 }
             }
             catch (Exception e)
             {
-                Debug.LogError("PlaySafeManager: Could not parse remote config response.");
-                Debug.LogException(e);
+                LogError("PlaySafeManager: Could not parse remote config response."); 
+                LogException(e);
             }
         }
 
@@ -951,13 +951,13 @@ namespace _DL.PlaySafe
 
                 if (www.result != UnityWebRequest.Result.Success)
                 {
-                    Debug.LogError("GetActivePoll error: " + www.error);
-                    Debug.Log(www.downloadHandler.text);
+                    LogError("GetActivePoll error: " + www.error);
+                    Log(www.downloadHandler.text);
                 }
                 else
                 {
-                    Debug.Log("Active poll retrieved successfully");
-                    Debug.Log(www.downloadHandler.text);
+                    Log("Active poll retrieved successfully");
+                    Log(www.downloadHandler.text);
                 }
             }
         }
@@ -992,13 +992,13 @@ namespace _DL.PlaySafe
 
                 if (www.result != UnityWebRequest.Result.Success)
                 {
-                    Debug.LogError("CastVote error: " + www.error);
-                    Debug.Log(www.downloadHandler.text);
+                    LogError("CastVote error: " + www.error);
+                    Log(www.downloadHandler.text);
                 }
                 else
                 {
-                    Debug.Log("Vote cast successfully");
-                    Debug.Log(www.downloadHandler.text);
+                    Log("Vote cast successfully");
+                    Log(www.downloadHandler.text);
                 }
             }
         }
@@ -1018,13 +1018,13 @@ namespace _DL.PlaySafe
 
                 if (www.result != UnityWebRequest.Result.Success)
                 {
-                    Debug.LogError("GetPollResults error: " + www.error);
-                    Debug.Log(www.downloadHandler.text);
+                    LogError("GetPollResults error: " + www.error);
+                    Log(www.downloadHandler.text);
                 }
                 else
                 {
-                    Debug.Log("Poll results retrieved successfully");
-                    Debug.Log(www.downloadHandler.text);
+                    Log("Poll results retrieved successfully");
+                    Log(www.downloadHandler.text);
                 }
             }
         }                
@@ -1043,13 +1043,13 @@ namespace _DL.PlaySafe
 
                 if (www.result != UnityWebRequest.Result.Success)
                 {
-                    Debug.LogError("GetPlayerStatus error: " + www.error);
-                    Debug.Log(www.downloadHandler.text);
+                    LogError("GetPlayerStatus error: " + www.error);
+                    Log(www.downloadHandler.text);
                 }
                 else
                 {
-                    Debug.Log("Player status retrieved successfully");
-                    Debug.Log(www.downloadHandler.text);
+                    Log("Player status retrieved successfully");
+                    Log(www.downloadHandler.text);
                     
                     try
                     {
@@ -1057,8 +1057,8 @@ namespace _DL.PlaySafe
                     }
                     catch (Exception e)
                     {
-                        Debug.LogError("Could not parse player status response.");
-                        Debug.LogException(e);
+                        LogError("Could not parse player status response."); 
+                        LogException(e);
                     }
                 }
             }
@@ -1082,5 +1082,57 @@ namespace _DL.PlaySafe
         }
 
         #endregion
+        
+        
+        public enum PlaySafeLogLevel
+        {
+            None    = 0,   // nothing
+            Exception   = 1,   // only Exceptions
+            Error   = 2,   // only LogError & Exceptions
+            Warning = 3,   // + LogWarning
+            Info    = 4,   // + Log (regular)
+            Verbose = 5    // + super-noisy traces
+        }
+
+        [Header("Logging")]
+        [SerializeField] private PlaySafeLogLevel logLevel = PlaySafeLogLevel.Info;
+
+        public PlaySafeLogLevel GetLogLevel()
+        {
+            return logLevel;
+        }
+        public PlaySafeLogLevel SetLogLevel(PlaySafeLogLevel newLogLevel)
+        {
+            return logLevel = newLogLevel;
+        }
+        
+        
+        private void LogError(string msg)
+        {
+            Log(msg, PlaySafeLogLevel.Error);
+        }
+        
+        private void LogWarning(string msg)
+        {
+            Log(msg, PlaySafeLogLevel.Warning);
+        }
+        
+        private void LogException(Exception e)
+        {
+            Log(e.ToString(), PlaySafeLogLevel.Exception);
+        }
+        
+        private void Log(string msg, PlaySafeLogLevel lvl = PlaySafeLogLevel.Info)
+        {
+            if (lvl > logLevel || logLevel == PlaySafeLogLevel.None) return;
+
+            switch (lvl)
+            {
+                case PlaySafeLogLevel.Exception:   Debug.LogError(msg);   break;
+                case PlaySafeLogLevel.Error:   Debug.LogError(msg);   break;
+                case PlaySafeLogLevel.Warning: Debug.LogWarning(msg); break;
+                default:                       Debug.Log(msg);        break;
+            }
+        }
     }
 }
