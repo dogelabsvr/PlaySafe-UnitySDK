@@ -504,6 +504,8 @@ namespace _DL.PlaySafe
             return form;
         }
 
+        WaitForEndOfFrame WaitForEndOfFrame = new WaitForEndOfFrame();
+        
         private IEnumerator SendAudioClipForAnalysisCoroutine(AudioClip clip)
         {
             if (clip == null)
@@ -518,10 +520,10 @@ namespace _DL.PlaySafe
                 Debug.Log("PlaySafeManager: The AudioClip is silent. Skipping upload.");
                 yield break;
             }
-
+            yield return WaitForEndOfFrame;
             WWWForm form = SetupForm();
             form.AddBinaryData("audio", wavFileBytes, "audio.wav", "audio/wav");
-
+            yield return WaitForEndOfFrame;
             yield return StartCoroutine(SendFormCoroutine(VoiceModerationEndpoint, form));
         }
 
@@ -539,6 +541,7 @@ namespace _DL.PlaySafe
                 }
                 else
                 {
+                    yield return WaitForEndOfFrame;
                     ProcessModerationResponse(www.downloadHandler.text);
                 }
             }
