@@ -564,7 +564,7 @@ namespace _DL.PlaySafe
                 if (response.Ok)
                 {
                     Recommendation recommendation = response.Data.Recommendation;
-                    DateTime serverTime = DateTime.Parse(response.Data.ServerTime, null, System.Globalization.DateTimeStyles.RoundtripKind);
+                    DateTime serverTime = DateTime.Parse(response.Data.ServerTime, null, System.Globalization.DateTimeStyles.RoundtripKind).ToUniversalTime();
                     Log($"[ProcessModerationResponse] Server time: {serverTime}");
                     if (recommendation.HasViolation && recommendation.Actions.Count > 0)
                     {
