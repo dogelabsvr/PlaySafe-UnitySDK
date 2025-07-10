@@ -171,8 +171,6 @@ namespace _DL.PlaySafe
 			if(_isRecording && (!CanRecord() && !Application.isEditor))
 			{ 
 				bool shouldSendAudioForProcessing = _lastRecording.Elapsed.TotalSeconds > RecordingDurationSeconds;
-                Log($"<color=#FF0000>PlaySafeManager: Recording stopped because player muted. Time elapsed: {_lastRecording.Elapsed.TotalSeconds:F2}s. Sending for processing: {shouldSendAudioForProcessing}</color>");
-                
 				StopRecording(shouldSendAudioForProcessing);
 			}
             else if (ShouldRecord())
@@ -330,7 +328,7 @@ namespace _DL.PlaySafe
         }
 
 
-        private void StopRecording(bool shouldStartCoroutine = true)
+        private void StopRecording(bool shouldSendAudioClip = true)
         {
             if (!_isRecording)
                 return;
@@ -359,13 +357,17 @@ namespace _DL.PlaySafe
             }
 
 
-			if(shouldStartCoroutine && _hasFocus) {
+			if(shouldSendAudioClip && _hasFocus) {
+                Log("PlaySafeManager: Sending audio for processing);
             	StartCoroutine(SendAudioClipForAnalysisCoroutine(_audioClipRecording));
 			}
+            else
+            {
+                LogWarning($"PlaySafeManager: Recording cancelled – shouldSendAudioClip = {shouldSendAudioClip}, Game Has Focus = {_hasFocus}. This can happen if you mute your mic during recording");
+            }
 
             _isRecording = false;
             
-            Log("PlaySafeManager: Recording stopped");
         }
         
         public void _ToggleRecording()
