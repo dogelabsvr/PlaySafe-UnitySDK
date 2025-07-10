@@ -23,6 +23,7 @@ namespace _DL.PlaySafe
 {
     public class PlaySafeManager : MonoBehaviour
     {
+        private static readonly HttpClient _httpClient = new HttpClient();
         [Header("Logging")]
         [SerializeField] private PlaySafeLogLevel logLevel = PlaySafeLogLevel.Info;
         
@@ -1041,35 +1042,46 @@ namespace _DL.PlaySafe
         /// Gets the current status of a player including any active violations.
         /// </summary>
         /// <param name="playerUserId">The unique identifier for the player.</param>
-        public IEnumerator GetPlayerStatus(string playerUserId)
+        public async Task<PlayerStatusResponse?> GetPlayerStatusAsync(string playerUserId)
         {
-            string url = PlaysafeBaseURL + "/player/status?userId=" + playerUserId;
+            string url = $"{PlaysafeBaseURL}/player/status?userId={playerUserId}";
 
-            using (UnityWebRequest www = UnityWebRequest.Get(url))
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
+
+            HttpResponseMessage response;
+            try
             {
-                www.SetRequestHeader("Authorization", "Bearer " + appKey);
-                yield return www.SendWebRequest();
+                response = await _httpClient.SendAsync(request).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                LogError($"GetPlayerStatus network error: {ex.Message}");
+                LogException(ex);
+                return null;
+            }
 
-                if (www.result != UnityWebRequest.Result.Success)
-                {
-                    LogError("GetPlayerStatus error: " + www.error);
-                    Log(www.downloadHandler.text);
-                }
-                else
-                {
-                    Log("Player status retrieved successfully");
-                    Log(www.downloadHandler.text);
-                    
-                    try
-                    {
-                        PlayerStatusResponse response = JsonConvert.DeserializeObject<PlayerStatusResponse>(www.downloadHandler.text);
-                    }
-                    catch (Exception e)
-                    {
-                        LogError("Could not parse player status response."); 
-                        LogException(e);
-                    }
-                }
+            string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                LogError($"GetPlayerStatus HTTP {(int)response.StatusCode}: {response.ReasonPhrase}");
+                Log(json);
+                return null;
+            }
+
+            try
+            {
+                var result = JsonConvert.DeserializeObject<PlayerStatusResponse>(json);
+                Log("Player status retrieved successfully");
+                // Optionally inspect result for violations etc. here
+                return result;
+            }
+            catch (Exception ex)
+            {
+                LogError("Could not parse player status response.");
+                LogException(ex);
+                return null;
             }
         }
 
