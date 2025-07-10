@@ -3,6 +3,7 @@ using System.Collections;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
+using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Unity.Burst;
 using Unity.Collections;
@@ -613,10 +614,13 @@ namespace _DL.PlaySafe
             }
         }
 
-        private bool _hasFocus = false;
+        private bool _hasFocus = true;
         private void OnApplicationFocus(bool hasFocus)
         {
-            _hasFocus = hasFocus;
+            if (!Application.isEditor)
+            {
+                _hasFocus = hasFocus;
+            }
             if (GetTelemetry == null || GetTelemetry() == null)
             {
                 return;
