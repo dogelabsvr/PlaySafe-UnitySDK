@@ -358,7 +358,7 @@ namespace _DL.PlaySafe
 
 
 			if(shouldSendAudioClip && _hasFocus) {
-                Log("PlaySafeManager: Sending audio for processing);
+                Log("PlaySafeManager: Sending audio for processing)");
             	StartCoroutine(SendAudioClipForAnalysisCoroutine(_audioClipRecording));
 			}
             else
