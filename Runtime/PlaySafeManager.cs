@@ -18,6 +18,8 @@ using Debug = UnityEngine.Debug;
     using Photon.Voice;
     using Photon.Voice.Unity;
 #endif
+using System.Net.Http;
+using System.Net.Http.Headers;
 
 namespace _DL.PlaySafe
 {
