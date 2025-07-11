@@ -952,25 +952,45 @@ namespace _DL.PlaySafe
         /// <summary>
         /// Gets the currently active poll for the product.
         /// </summary>
-        public IEnumerator GetActivePoll()
+        public async Task<ActiveSenseiPollResponse?> GetActivePollAsync()
         {
-            string url = PlaysafeBaseURL + "/sensei/poll/active";
+            string url = $"{PlaysafeBaseURL}/sensei/poll/active";
 
-            using (UnityWebRequest www = UnityWebRequest.Get(url))
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
+
+            HttpResponseMessage response;
+            try
             {
-                www.SetRequestHeader("Authorization", "Bearer " + appKey);
-                yield return www.SendWebRequest();
+                response = await _httpClient.SendAsync(request).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                LogError($"GetActivePoll network error: {ex.Message}");
+                LogException(ex);
+                return null;
+            }
 
-                if (www.result != UnityWebRequest.Result.Success)
-                {
-                    LogError("GetActivePoll error: " + www.error);
-                    Log(www.downloadHandler.text);
-                }
-                else
-                {
-                    Log("Active poll retrieved successfully");
-                    Log(www.downloadHandler.text);
-                }
+            string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                LogError($"GetActivePoll HTTP {(int)response.StatusCode}: {response.ReasonPhrase}");
+                Log(json);
+                return null;
+            }
+
+            try
+            {
+                var result = JsonConvert.DeserializeObject<ActiveSenseiPollResponse>(json);
+                Log("Active poll retrieved successfully");
+                return result;
+            }
+            catch (Exception ex)
+            {
+                LogError("Could not parse active poll response.");
+                LogException(ex);
+                return null;
             }
         }
 
@@ -980,9 +1000,9 @@ namespace _DL.PlaySafe
         /// <param name="pollId">The ID of the poll to vote on</param>
         /// <param name="userId">The ID of the user casting the vote</param>
         /// <param name="response">The user's response/vote</param>
-        public IEnumerator CastVote(string pollId, string userId, string response)
+        public async Task<SenseiPollCastVoteResponse?> CastVoteAsync(string pollId, string userId, string response)
         {
-            string url = PlaysafeBaseURL + "/sensei/poll/vote";
+            string url = $"{PlaysafeBaseURL}/sensei/poll/vote";
             var requestBody = new
             {
                 pollId = pollId,
@@ -991,27 +1011,44 @@ namespace _DL.PlaySafe
             };
 
             string json = JsonConvert.SerializeObject(requestBody);
-            byte[] jsonToSend = Encoding.UTF8.GetBytes(json);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-            using (UnityWebRequest www = new UnityWebRequest(url, "POST"))
+            using var request = new HttpRequestMessage(HttpMethod.Post, url);
+            request.Content = content;
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
+
+            HttpResponseMessage httpResponse;
+            try
             {
-                www.uploadHandler = new UploadHandlerRaw(jsonToSend);
-                www.downloadHandler = new DownloadHandlerBuffer();
-                www.SetRequestHeader("Content-Type", "application/json");
-                www.SetRequestHeader("Authorization", "Bearer " + appKey);
+                httpResponse = await _httpClient.SendAsync(request).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                LogError($"CastVote network error: {ex.Message}");
+                LogException(ex);
+                return null;
+            }
 
-                yield return www.SendWebRequest();
+            string responseJson = await httpResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
 
-                if (www.result != UnityWebRequest.Result.Success)
-                {
-                    LogError("CastVote error: " + www.error);
-                    Log(www.downloadHandler.text);
-                }
-                else
-                {
-                    Log("Vote cast successfully");
-                    Log(www.downloadHandler.text);
-                }
+            if (!httpResponse.IsSuccessStatusCode)
+            {
+                LogError($"CastVote HTTP {(int)httpResponse.StatusCode}: {httpResponse.ReasonPhrase}");
+                Log(responseJson);
+                return null;
+            }
+
+            try
+            {
+                var result = JsonConvert.DeserializeObject<SenseiPollCastVoteResponse>(responseJson);
+                Log("Vote cast successfully");
+                return result;
+            }
+            catch (Exception ex)
+            {
+                LogError("Could not parse cast vote response.");
+                LogException(ex);
+                return null;
             }
         }
 
@@ -1019,27 +1056,48 @@ namespace _DL.PlaySafe
         /// Gets the voting results for a specific poll.
         /// </summary>
         /// <param name="pollId">The ID of the poll to get results for</param>
-        public IEnumerator GetPollResults(string pollId)
+        public async Task<SenseiPollVoteResultsResponse?> GetPollResultsAsync(string pollId)
         {
-            string url = PlaysafeBaseURL + "/sensei/poll/results/" + pollId;
+            string url = $"{PlaysafeBaseURL}/sensei/poll/results/{pollId}";
 
-            using (UnityWebRequest www = UnityWebRequest.Get(url))
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
+
+            HttpResponseMessage response;
+            try
             {
-                www.SetRequestHeader("Authorization", "Bearer " + appKey);
-                yield return www.SendWebRequest();
-
-                if (www.result != UnityWebRequest.Result.Success)
-                {
-                    LogError("GetPollResults error: " + www.error);
-                    Log(www.downloadHandler.text);
-                }
-                else
-                {
-                    Log("Poll results retrieved successfully");
-                    Log(www.downloadHandler.text);
-                }
+                response = await _httpClient.SendAsync(request).ConfigureAwait(false);
             }
-        }                
+            catch (Exception ex)
+            {
+                LogError($"GetPollResults network error: {ex.Message}");
+                LogException(ex);
+                return null;
+            }
+
+            string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                LogError($"GetPollResults HTTP {(int)response.StatusCode}: {response.ReasonPhrase}");
+                Log(json);
+                return null;
+            }
+
+            try
+            {
+                var result = JsonConvert.DeserializeObject<SenseiPollVoteResultsResponse>(json);
+                Log("Poll results retrieved successfully");
+                return result;
+            }
+            catch (Exception ex)
+            {
+                LogError("Could not parse poll results response.");
+                LogException(ex);
+                return null;
+            }
+        }
+                      
         /// <summary>
         /// Gets the current status of a player including any active violations.
         /// </summary>
