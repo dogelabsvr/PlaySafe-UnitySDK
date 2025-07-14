@@ -128,6 +128,11 @@ public class RemoteConfigVoiceAIData
 }
 
 //
+public class SenseiPollCastVoteResponseValue {
+    [JsonProperty("value")]
+    public string Value { get; set; }
+}
+
 public class SenseiPollCastVoteData {
     [JsonProperty("id")]
     public string Id { get; set; }
@@ -135,11 +140,17 @@ public class SenseiPollCastVoteData {
     [JsonProperty("pollId")] 
     public string PollId { get; set; }
 
-    [JsonProperty("userId")]
+    [JsonProperty("playerUserId")]
     public string UserId { get; set; }
 
     [JsonProperty("response")]
-    public string Response { get; set; }
+    public SenseiPollCastVoteResponseValue Response { get; set; }
+
+    [JsonProperty("createdAt")]
+    public DateTime CreatedAt { get; set; }
+
+    [JsonProperty("updatedAt")]
+    public DateTime UpdatedAt { get; set; }
 } 
 
 public class SenseiPollCastVoteResponse { 

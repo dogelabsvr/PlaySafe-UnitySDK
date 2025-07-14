@@ -952,17 +952,17 @@ namespace _DL.PlaySafe
         /// <summary>
         /// Gets the currently active poll for the product.
         /// </summary>
-        public async Task<ActiveSenseiPollResponse?> GetActivePollAsync()
+        public async Task<ActiveSenseiPollResponse?> GetActivePollAsync(string personaId)
         {
-            string url = $"{PlaysafeBaseURL}/sensei/poll/active";
+            string url = $"{PlaysafeBaseURL}/sensei/personas/{personaId}/polls/active/single";
 
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
 
-            HttpResponseMessage response;
+            HttpResponseMessage httpResponse;
             try
             {
-                response = await _httpClient.SendAsync(request).ConfigureAwait(false);
+                httpResponse = await _httpClient.SendAsync(request).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -971,11 +971,11 @@ namespace _DL.PlaySafe
                 return null;
             }
 
-            string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            string json = await httpResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
 
-            if (!response.IsSuccessStatusCode)
+            if (!httpResponse.IsSuccessStatusCode)
             {
-                LogError($"GetActivePoll HTTP {(int)response.StatusCode}: {response.ReasonPhrase}");
+                LogError($"GetActivePoll HTTP {(int)httpResponse.StatusCode}: {httpResponse.ReasonPhrase}");
                 Log(json);
                 return null;
             }
@@ -998,15 +998,15 @@ namespace _DL.PlaySafe
         /// Casts a vote for a specific poll.
         /// </summary>
         /// <param name="pollId">The ID of the poll to vote on</param>
-        /// <param name="userId">The ID of the user casting the vote</param>
         /// <param name="response">The user's response/vote</param>
-        public async Task<SenseiPollCastVoteResponse?> CastVoteAsync(string pollId, string userId, string response)
+        public async Task<SenseiPollCastVoteResponse?> CastVoteAsync(string pollId, string response)
         {
-            string url = $"{PlaysafeBaseURL}/sensei/poll/vote";
+            string url = $"{PlaysafeBaseURL}/sensei/polls/{pollId}/votes";
+            var playerUserId = GetTelemetry().UserId;
+            
             var requestBody = new
             {
-                pollId = pollId,
-                userId = userId,
+                userId = playerUserId,
                 response = response
             };
 
@@ -1040,6 +1040,7 @@ namespace _DL.PlaySafe
 
             try
             {
+                Log("CastVote response: " + responseJson);
                 var result = JsonConvert.DeserializeObject<SenseiPollCastVoteResponse>(responseJson);
                 Log("Vote cast successfully");
                 return result;
@@ -1058,7 +1059,7 @@ namespace _DL.PlaySafe
         /// <param name="pollId">The ID of the poll to get results for</param>
         public async Task<SenseiPollVoteResultsResponse?> GetPollResultsAsync(string pollId)
         {
-            string url = $"{PlaysafeBaseURL}/sensei/poll/results/{pollId}";
+            string url = $"{PlaysafeBaseURL}/sensei/polls/{pollId}/results";
 
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
