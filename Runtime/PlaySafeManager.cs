@@ -1102,9 +1102,15 @@ namespace _DL.PlaySafe
         /// <summary>
         /// Gets the current status of a player including any active violations.
         /// </summary>
-        /// <param name="playerUserId">The unique identifier for the player.</param>
-        public async Task<PlayerStatusResponse?> GetPlayerStatusAsync(string playerUserId)
+        public async Task<PlayerStatusResponse?> GetPlayerStatusAsync()
         {
+            string playerUserId = GetTelemetry().UserId;
+            if (string.IsNullOrEmpty(playerUserId))
+            {
+                LogError("GetPlayerStatusAsync: No user ID found");
+                return null;
+            }
+
             string url = $"{PlaysafeBaseURL}/player/status?userId={playerUserId}";
 
             using var request = new HttpRequestMessage(HttpMethod.Get, url);

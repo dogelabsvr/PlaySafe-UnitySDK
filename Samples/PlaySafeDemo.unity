@@ -453,7 +453,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d5e48cc8ab9934fdd9d00b253b19c4fa, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  voiceModeration: {fileID: 1961419650}
+  playSafeManager: {fileID: 1961419650}
 --- !u!114 &1961419650
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -466,14 +466,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 8e224d63f025433da7715719bc3b2f5f, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  logLevel: 4
   debugEnableRecord: 0
-  appKey: my-app-key
-  silenceThreshold: 0.02
+  appKey: pk_playsafe_ai_ab18ac75-fe94-4ecd-97ce-5e063f574485
+  sampleRate: 24000
+  channelCount: 1
+  isUsingExistingUnityMic: 0
   hasPermission: 0
   selectedMicrophone: Not set
   isMicRecording: 0
   shouldRecord: 0
   microphoneDevicesCount: 0
+  audioBufferFromExistingMic: []
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
