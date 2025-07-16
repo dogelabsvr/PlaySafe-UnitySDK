@@ -1,16 +1,34 @@
 using System;
+using System.Threading;
 using _DL.PlaySafe;
 using UnityEngine;
 
 public class PlaySafeDemoIntegration : MonoBehaviour
 {
     [SerializeField, Tooltip("The PlaySafeManager component to use for the demo.") ] PlaySafeManager playSafeManager;
-    void Start()
+    async void Start()
     {
         playSafeManager.CanRecord = CanRecord;
         playSafeManager.GetTelemetry = GetTelemetry;
         playSafeManager.OnActionEvent = OnActionEvent;
         playSafeManager.Initialize();
+
+        // Example: Get player status
+        // var playerStatus = await playSafeManager.GetPlayerStatusAsync();
+        // if (playerStatus != null && playerStatus.Ok)
+        // {
+        //     Debug.Log($"Player has violation: {playerStatus.Data.HasViolation}");
+        // }
+
+        // Example: Sensei poll management
+        // string personaId = "your-persona-id"; // From PlaySafe dashboard
+        // var poll = await playSafeManager.GetActivePollAsync(personaId);
+        // 
+        // if (poll != null && poll.Ok && poll.Data != null)
+        // {
+        //     var vote = await playSafeManager.CastVoteAsync(poll.Data.Id, "yes");
+        //     var results = await playSafeManager.GetPollResultsAsync(poll.Data.Id);
+        // }
     }
     
     // When a user is banned / or timed out 
@@ -65,6 +83,4 @@ public class PlaySafeDemoIntegration : MonoBehaviour
 
         return telemetry;
     }
-    
-
 }
