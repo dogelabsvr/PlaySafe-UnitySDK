@@ -5,7 +5,6 @@ using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
-using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
@@ -394,86 +393,59 @@ namespace _DL.PlaySafe
         /// </summary>
         /// <param name="clip">The AudioClip to convert.</param>
         /// <returns>A tuple containing the WAV file bytes and a flag indicating if the clip is silent.</returns>
-// Create a persistent MemoryStream once
-        private MemoryStream reusableStream = new MemoryStream();
+        // Create a persistent MemoryStream once
+        private MemoryStream _reusableStream = new MemoryStream();
 
         public (byte[] wavFileBytes, bool isSilent) AudioClipToFile(AudioClip clip)
         {
-            if (clip == null) throw new System.ArgumentNullException(nameof(clip));
+            if (!clip)
+                throw new ArgumentNullException(nameof(clip));
 
-            // reset the stream
-            reusableStream.SetLength(0);
-            reusableStream.Position = 0;
+            // Reset the reusable MemoryStream.
+            _reusableStream.SetLength(0);
+            _reusableStream.Position = 0;
 
             int sampleCount = clip.samples * clip.channels;
-            reusableStream.Write(new byte[44], 0, 44);
+            // Reserve header space (44 bytes) for the WAV header.
+            _reusableStream.Write(new byte[44], 0, 44);
 
-            var samples = new NativeArray<float>(sampleCount, Allocator.TempJob);
-            var audioBytes = new NativeArray<byte>(sampleCount * sizeof(short), Allocator.TempJob);
-            var silentRef = new NativeReference<bool>(Allocator.TempJob);
+            // Get the audio samples.
+            float[] samples = new float[sampleCount];
             clip.GetData(samples, 0);
-            silentRef.Value = true;
 
-            // schedule the conversion + silence‐check job
-            var job = new ConvertToPcm16Job
+            // Create a single byte array for the audio data.
+            // Each sample will become 2 bytes (16 bits).
+            byte[] audioBytes = new byte[sampleCount * sizeof(short)];
+            
+            bool isSilent = true;
+            float rescaleFactor = 32767f;
+
+            // Convert each sample directly to bytes.
+            for (int i = 0; i < sampleCount; i++)
             {
-                samples = samples,
-                audioBytes = audioBytes,
-                rescaleFactor = 32767f,
-                isSilent = silentRef,
-                silenceThreshold = _silenceThreshold
-            };
-            JobHandle h = job.Schedule();
-            h.Complete();
-
-            reusableStream.Write(audioBytes.AsReadOnlySpan());
-            reusableStream.Position = 0;
-            WriteWavHeader(reusableStream, clip, audioBytes.Length);
-
-            bool isSilent = silentRef.Value;
-
-            silentRef.Dispose();
-            samples.Dispose();
-            audioBytes.Dispose();
-            // return the byte array and the silence flag
-
-            return (reusableStream.ToArray(), isSilent);
-        }
-
-        [BurstCompile]
-        struct ConvertToPcm16Job : IJob
-        {
-            [ReadOnly] public NativeArray<float> samples;
-            public NativeArray<byte> audioBytes;
-            public float rescaleFactor;
-            public float silenceThreshold;
-
-            //Allow parallel writes because they are all just trying to set the value to false
-            [NativeDisableParallelForRestriction]
-            [NativeDisableContainerSafetyRestriction]
-            public NativeReference<bool> isSilent;
-
-            public void Execute()
-            {
-                int length = samples.Length;
-                for (int i = 0; i < length; i++)
+                float sample = samples[i];
+               
+                if (isSilent && Mathf.Abs(sample) > _silenceThreshold)
                 {
-                    float sample = samples[i];
-
-                    // if any sample exceeds threshold, mark as non-silent
-                    if (math.abs(sample) > silenceThreshold)
-                        isSilent.Value = false;
-
-                    // pack float → 16-bit PCM
-                    short s = (short)(sample * rescaleFactor);
-                    int idx2 = i * 2;
-                    audioBytes[idx2] = (byte)(s & 0xFF);
-                    audioBytes[idx2 + 1] = (byte)((s >> 8) & 0xFF);
+                    isSilent = false;
                 }
+                short intSample = (short)(sample * rescaleFactor);
+                // Write in little-endian order.
+                audioBytes[2 * i] = (byte)(intSample & 0xFF);
+                audioBytes[2 * i + 1] = (byte)((intSample >> 8) & 0xFF);
             }
+
+            // Write the converted audio data to the stream.
+            _reusableStream.Write(audioBytes, 0, audioBytes.Length);
+
+            // Write the WAV header at the beginning.
+            _reusableStream.Position = 0;
+            WriteWavHeader(_reusableStream, clip, audioBytes.Length);
+
+            // Return the complete byte array and the silence flag.
+            byte[] result = _reusableStream.ToArray();
+            return (result, isSilent);
         }
-
-
 
         private void WriteWavHeader(Stream stream, AudioClip clip, int dataLength)
         {
