@@ -393,8 +393,8 @@ namespace _DL.PlaySafe
         /// </summary>
         /// <param name="clip">The AudioClip to convert.</param>
         /// <returns>A tuple containing the WAV file bytes and a flag indicating if the clip is silent.</returns>
-// Create a persistent MemoryStream once
-        private MemoryStream _reusableStream;
+        // Create a persistent MemoryStream once
+        private MemoryStream _reusableStream = new MemoryStream();
 
         public (byte[] wavFileBytes, bool isSilent) AudioClipToFile(AudioClip clip)
         {

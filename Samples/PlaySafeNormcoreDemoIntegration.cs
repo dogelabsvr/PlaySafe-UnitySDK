@@ -2,10 +2,14 @@ using System;
 using System.Threading;
 using _DL.PlaySafe;
 using UnityEngine;
+using Normal.Realtime;
 
-public class PlaySafeDemoIntegration : MonoBehaviour
+public class PlaySafeNormcoreDemoIntegration : MonoBehaviour
 {
     [SerializeField, Tooltip("The PlaySafeManager component to use for the demo.") ] PlaySafeManager playSafeManager;
+    [SerializeField] private Realtime realtime;
+    [SerializeField] private RealtimeAvatarManager _realtimeAvatarManager;
+    
     async void Start()
     {
         playSafeManager.CanRecord = CanRecord;
@@ -34,50 +38,63 @@ public class PlaySafeDemoIntegration : MonoBehaviour
     // When a user is banned / or timed out 
     private void OnActionEvent(ActionItem actionEvent, DateTime serverTime)
     {
-
         string duration = actionEvent.DurationInMinutes >= 60 ? 
-        $"{(actionEvent.DurationInMinutes / 60f).ToString("F1")} hours" :
-        $"{actionEvent.DurationInMinutes} minutes";
+            $"{(actionEvent.DurationInMinutes / 60f).ToString("F1")} hours" :
+            $"{actionEvent.DurationInMinutes} minutes";
 
-        Debug.Log(
-            $"Voice chat disabled for {duration}. This can happen due to using slurs, fighting, or general disrespectful behavior");
-
-        // Example: DateTime bannedUntil = playerStatus.ServerTime + System.TimeSpan.FromMinutes(actionEvent.DurationInMinutes)
         DateTime bannedUntil = serverTime + System.TimeSpan.FromMinutes(actionEvent.DurationInMinutes);
+        string msgToUser = $"Voice chat disabled for {duration}. This can happen due to using slurs, fighting, or general disrespectful behavior";
+        // TODO: Notify the user they were banned 
 
-        // Log the ban information using Unity's Debug class
-        Debug.Log($"[OnActionEvent]Server time: {serverTime}");
-        Debug.Log($"[OnActionEvent] Player banned until: {bannedUntil}");
-        
-        // Additional detailed information for debugging
-        Debug.Log($"[OnActionEvent] Ban details - Action: {actionEvent.Action}, Reason: {actionEvent.Reason}, Duration: {actionEvent.DurationInMinutes} minutes");
-        // TODO: Add implementation here
+        // TODO: Turn off their microphone until the bannedUntil date passes
     }
     
     // When to record a users microphone 
     private bool CanRecord()
-    {   
-        // Example settings to choose when to listen to microphone 
-        bool IsMicrophoneMuted = false; // TODO: Replace this with your game logic 
-        bool IsInMultiplayerLobby = true; // TODO: Replace this with your game logic
-        int playerCount = 3; // TODO: Replace this with your game logic
-        
-        return !IsMicrophoneMuted &&
-               IsInMultiplayerLobby &&
-               playerCount >= 2;
+    {
+        return IsVoiceMuted() &&
+               IsConnectedToRoom() &&
+               GetRoomPlayerCount() >= 2; // Only record if there are other players in the room
+        // Alternatively, you can simply return true when testing in the editor
+    }
+    
+    private bool IsVoiceMuted()
+    {
+        // TODO: Implement your own logic to determine if a player's mic is muted
+        throw new NotImplementedException();
     }
 
-    // When an event is sent to PlaySafe - e.g. an audio event 
+    private bool IsConnectedToRoom()
+    {
+        return realtime.connected;
+    }
+
+    public int GetRoomPlayerCount()
+    {
+        if (IsConnectedToRoom())
+        {
+            return _realtimeAvatarManager.avatars.Count;
+        }
+        
+        return 0;
+    }
+
+    // Used to identify a player when an event is sent to PlaySafe - e.g. an audio event
     private PlaySafeManager.AudioEventRequestData GetTelemetry()
     {
-        string userId = "1234";
-        string roomName = "ExampleRoom";
+        string userId = "1234"; // TODO: Get user account id / platform user id
         string language = Application.systemLanguage.ToString();
+        string roomId = "";
+        
+        if (IsConnectedToRoom())
+        {
+            roomId = realtime.room.name;
+        }
         
         PlaySafeManager.AudioEventRequestData telemetry = new PlaySafeManager.AudioEventRequestData()
         {
             UserId = userId,
-            RoomId = roomName,
+            RoomId = roomId,
             Language = language,
         };
 
