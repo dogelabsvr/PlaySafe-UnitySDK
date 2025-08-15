@@ -4,6 +4,8 @@ using _DL.PlaySafe;
 using UnityEngine;
 using Normal.Realtime;
 
+#if NORMCORE
+
 public class PlaySafeNormcoreDemoIntegration : MonoBehaviour
 {
     [SerializeField, Tooltip("The PlaySafeManager component to use for the demo.") ] PlaySafeManager playSafeManager;
@@ -101,3 +103,5 @@ public class PlaySafeNormcoreDemoIntegration : MonoBehaviour
         return telemetry;
     }
 }
+
+#endif
