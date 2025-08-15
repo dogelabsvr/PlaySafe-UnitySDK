@@ -2,9 +2,9 @@ using System;
 using System.Threading;
 using _DL.PlaySafe;
 using UnityEngine;
+#if NORMCORE
 using Normal.Realtime;
 
-#if NORMCORE
 
 public class PlaySafeNormcoreDemoIntegration : MonoBehaviour
 {
