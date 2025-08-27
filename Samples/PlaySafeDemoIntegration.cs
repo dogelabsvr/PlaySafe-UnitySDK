@@ -70,13 +70,17 @@ public class PlaySafeDemoIntegration : MonoBehaviour
     // When an event is sent to PlaySafe - e.g. an audio event 
     private PlaySafeManager.AudioEventRequestData GetTelemetry()
     {
-        string userId = "1234";
+        string userId = "1234"; // TODO: Get user account id / platform user id
         string roomName = "ExampleRoom";
+        string userName = "ExampleUser"; // TODO: Get public player username
         string language = Application.systemLanguage.ToString();
         
         PlaySafeManager.AudioEventRequestData telemetry = new PlaySafeManager.AudioEventRequestData()
         {
-            UserId = userId,
+            UserId = userId, 
+            
+            // The public username of the player. This value is encrypted before storage
+            UserName = userName, // Optional but encouraged (having this allows you to search for the user by username in the PlaySafe dashboard)
             RoomId = roomName,
             Language = language,
         };

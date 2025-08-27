@@ -86,6 +86,9 @@ public class PlaySafeNormcoreDemoIntegration : MonoBehaviour
     {
         string userId = "1234"; // TODO: Get user account id / platform user id
         string language = Application.systemLanguage.ToString();
+        
+        // The public username of the player. This value is encrypted before storage
+        string userName = "ExampleUsername"; // TODO: Get public player username
         string roomId = "";
         
         if (IsConnectedToRoom())
@@ -96,6 +99,7 @@ public class PlaySafeNormcoreDemoIntegration : MonoBehaviour
         PlaySafeManager.AudioEventRequestData telemetry = new PlaySafeManager.AudioEventRequestData()
         {
             UserId = userId,
+            UserName = userName, // Optional (having this allows you to search for the user by username in the PlaySafe dashboard)
             RoomId = roomId,
             Language = language,
         };

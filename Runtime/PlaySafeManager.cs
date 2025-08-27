@@ -59,7 +59,6 @@ namespace _DL.PlaySafe
         // Session state management
         private enum SessionState { Inactive, Starting, Active, Ending }
         private SessionState _currentSessionState = SessionState.Inactive;
-        private string _currentUserId = null;
         private Coroutine _activeSessionCoroutine = null;
         private float _lastSessionChangeTime = 0f;
         private const float MIN_SESSION_CHANGE_INTERVAL = 2.0f; // seconds
@@ -480,8 +479,11 @@ namespace _DL.PlaySafe
         {
             AudioEventRequestData telemetry = GetTelemetry();
             WWWForm form = new WWWForm();
+
             form.AddField("userId", telemetry.UserId);
+            form.AddField("username", telemetry.UserName);
             form.AddField("roomId", telemetry.RoomId);
+
             return form;
         }
 
@@ -505,6 +507,14 @@ namespace _DL.PlaySafe
             WWWForm form = SetupForm();
             form.AddBinaryData("audio", wavFileBytes, "audio.wav", "audio/wav");
             yield return WaitForEndOfFrame;
+            yield return StartCoroutine(SendFormCoroutine(VoiceModerationEndpoint, form));
+        }
+
+        private IEnumerator SendTextForAnalysisCoroutine(string text)
+        {
+            yield return WaitForEndOfFrame;
+            WWWForm form = SetupForm();
+            form.AddField("text", text);
             yield return StartCoroutine(SendFormCoroutine(VoiceModerationEndpoint, form));
         }
 
@@ -605,30 +615,16 @@ namespace _DL.PlaySafe
             
             if (!hasFocus)
             {
-                TryEndSession(GetTelemetry().UserId);
+                TryEndSession();
             }
             else
             {
-                TryStartSession(GetTelemetry().UserId);
+                TryStartSession();
             }
         }
 
         private void OnApplicationPause (bool isPaused)
-        {
-            /*
-            if (!isActiveAndEnabled || !gameObject.activeInHierarchy)
-            {
-                return;
-            }
-
-            if (GetTelemetry == null || GetTelemetry() == null)
-            {
-                return;
-            }
-            
-            StartCoroutine(PauseHandler(isPaused));
-            */
-            
+        {            
             if (GetTelemetry == null || GetTelemetry() == null)
             {
                 return;
@@ -636,11 +632,11 @@ namespace _DL.PlaySafe
             
             if (isPaused)
             {
-                TryEndSession(GetTelemetry().UserId);
+                TryEndSession();
             }
             else
             {
-                TryStartSession(GetTelemetry().UserId);
+                TryStartSession();
             }
         }
         
@@ -650,11 +646,11 @@ namespace _DL.PlaySafe
 
             if (isPaused)
             {
-                TryEndSession(GetTelemetry().UserId);
+                TryEndSession();
             }
             else
             {
-                TryStartSession(GetTelemetry().UserId);
+                TryStartSession();
             }
         }
 
@@ -672,28 +668,23 @@ namespace _DL.PlaySafe
         }
 
         // Public methods to safely trigger session changes
-        public void TryStartSession(string playerUserId)
+        public void TryStartSession()
         {
+            string playerUserId = GetTelemetry().UserId;
+
             if (string.IsNullOrEmpty(playerUserId))
             {
-                LogError("PlaySafeManager: Cannot start session with null or empty user ID");
+                LogError("PlaySafeManager: Cannot start session with null or empty user ID. Please ensure GetTelemetry() is correctly implemented.");
                 return;
             }
 
             // Check if we're already in the desired state or transitioning to it
             if (_currentSessionState == SessionState.Active || _currentSessionState == SessionState.Starting)
             {
-                if (_currentUserId == playerUserId)
-                {
-                    Log("PlaySafeManager: Session already active or starting for this user");
-                    return;
-                }
-                else
-                {
-                    Log("Different user ending current session");
-                    // Different user, end current session first
-                    TryEndSession(_currentUserId);
-                }
+    
+                Log("Different user ending current session");
+                // Different user, end current session first
+                TryEndSession();
             }
 
             // Check cooldown period
@@ -709,12 +700,13 @@ namespace _DL.PlaySafe
 
             // Start new session
             _currentSessionState = SessionState.Starting;
-            _currentUserId = playerUserId;
-            _activeSessionCoroutine = StartCoroutine(StartSessionInternal(playerUserId));
+            _activeSessionCoroutine = StartCoroutine(StartSessionInternal());
         }
 
-        public void TryEndSession(string playerUserId)
+        public void TryEndSession()   
         {
+            string playerUserId = GetTelemetry().UserId;
+            
             if (string.IsNullOrEmpty(playerUserId))
             {
                 LogError("PlaySafeManager: Cannot end session with null or empty user ID");
@@ -725,13 +717,6 @@ namespace _DL.PlaySafe
             if (_currentSessionState == SessionState.Inactive || _currentSessionState == SessionState.Ending)
             {
                 Log("PlaySafeManager: Session already inactive or ending");
-                return;
-            }
-
-            // Check if this is for a different user than the current session
-            if (_currentUserId != playerUserId)
-            {
-                LogWarning($"PlaySafeManager: Attempting to end session for user {playerUserId} but active session is for {_currentUserId}");
                 return;
             }
 
@@ -748,19 +733,24 @@ namespace _DL.PlaySafe
 
             // End session
             _currentSessionState = SessionState.Ending;
-            _activeSessionCoroutine = StartCoroutine(EndSessionInternal(playerUserId));
+            _activeSessionCoroutine = StartCoroutine(EndSessionInternal());
         }
 
         /// <summary>
         /// Starts a new session. If a session is already running (and was not properly ended), it is automatically ended and marked as decayed.
         /// </summary>
         /// <param name="playerUserId">The unique identifier for the player.</param>
-        private IEnumerator StartSessionInternal(string playerUserId)
+        private IEnumerator StartSessionInternal()
         {
+            string playerUserId = GetTelemetry().UserId;
+            string playerUserName = GetTelemetry().UserName;
+            
             string url = PlaysafeBaseURL + "/player/session/start";
+
             var requestBody = new
             {
-                playerUserId = playerUserId
+                playerUserId = playerUserId,
+                playerUserName = playerUserName
             };
 
             string json = JsonConvert.SerializeObject(requestBody);
@@ -796,12 +786,17 @@ namespace _DL.PlaySafe
         /// Ends the current session. This call always returns a consistent response even if no session was active.
         /// </summary>
         /// <param name="playerUserId">The unique identifier for the player.</param>
-        private IEnumerator EndSessionInternal(string playerUserId)
+        private IEnumerator EndSessionInternal()
         {
+            string playerUserId = GetTelemetry().UserId;
+            string playerUserName = GetTelemetry().UserName;
+
             string url = PlaysafeBaseURL + "/player/session/end";
+            
             var requestBody = new
             {
-                playerUserId = playerUserId
+                playerUserId = playerUserId,
+                playerUserName = playerUserName
             };
 
             string json = JsonConvert.SerializeObject(requestBody);
@@ -828,7 +823,6 @@ namespace _DL.PlaySafe
                 }
                 
                 _currentSessionState = SessionState.Inactive;
-                _currentUserId = null;
                 _activeSessionCoroutine = null;
             }
         }
@@ -840,7 +834,7 @@ namespace _DL.PlaySafe
         /// <param name="playerUserId">The unique identifier for the player.</param>
         public IEnumerator StartSession(string playerUserId)
         {
-            TryStartSession(playerUserId);
+            TryStartSession();
             
             // Wait until the session is no longer in Starting state
             while (_currentSessionState == SessionState.Starting)
@@ -858,7 +852,7 @@ namespace _DL.PlaySafe
         /// <param name="playerUserId">The unique identifier for the player.</param>
         public IEnumerator EndSession(string playerUserId)
         {
-            TryEndSession(playerUserId);
+            TryEndSession();
             
             // Wait until the session is no longer in Ending state
             while (_currentSessionState == SessionState.Ending)
@@ -974,7 +968,7 @@ namespace _DL.PlaySafe
         public async Task<SenseiPollCastVoteResponse?> CastVoteAsync(string pollId, string response)
         {
             string url = $"{PlaysafeBaseURL}/sensei/polls/{pollId}/votes";
-            var playerUserId = GetTelemetry().UserId;
+            string playerUserId = GetTelemetry().UserId;
             
             var requestBody = new
             {
@@ -1070,6 +1064,54 @@ namespace _DL.PlaySafe
                 return null;
             }
         }
+       
+        /// <summary>
+        /// Gets the voting results for a specific poll.
+        /// </summary>
+        /// <param name="pollId">The ID of the poll to get results for</param>
+        public async Task<SenseiPlayerPollVotesResponse?> GetPlayerPollVotesAsync(string pollId)
+        {
+            string playerUserId = GetTelemetry().UserId;
+
+            string url = $"{PlaysafeBaseURL}/sensei/polls/{pollId}/votes/player?userId={playerUserId}";
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
+
+            HttpResponseMessage response;
+            try
+            {
+                response = await _httpClient.SendAsync(request).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                LogError($"GetPlayerPollVotes network error: {ex.Message}");
+                LogException(ex);
+                return null;
+            }
+
+            string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                LogError($"GetPlayerPollVotes HTTP {(int)response.StatusCode}: {response.ReasonPhrase}");
+                Log(json);
+                return null;
+            }
+
+            try
+            {
+                var result = JsonConvert.DeserializeObject<SenseiPlayerPollVotesResponse>(json);
+                Log("Player poll votes retrieved successfully");
+                return result;
+            }
+            catch (Exception ex)
+            {
+                LogError("Could not parse player poll votes response.");
+                LogException(ex);
+                return null;
+            }
+        }
                       
         /// <summary>
         /// Gets the current status of a player including any active violations.
@@ -1138,6 +1180,7 @@ namespace _DL.PlaySafe
         {
             public string UserId;
             public string RoomId;
+            public string UserName;
             public string Language;
         }
 
