@@ -130,7 +130,7 @@ namespace _DL.PlaySafe
     }
 
     //
-    public class SenseiPollCastVoteResponseValue {
+    public class SenseiPollVoteResponse {
         [JsonProperty("value")]
         public string Value { get; set; }
     }
@@ -146,7 +146,7 @@ namespace _DL.PlaySafe
         public string UserId { get; set; }
 
         [JsonProperty("response")]
-        public SenseiPollCastVoteResponseValue Response { get; set; }
+        public SenseiPollVoteResponse Response { get; set; }
 
         [JsonProperty("createdAt")]
         public DateTime CreatedAt { get; set; }
@@ -214,6 +214,41 @@ namespace _DL.PlaySafe
 
         [JsonProperty("data")] 
         public SenseiPollVoteResultsData Data { get; set; }
+
+        [JsonProperty("message")]
+        public string Message { get; set; }
+    }
+
+    public class SenseiPlayerPollVote
+    {
+        [JsonProperty("id")]
+        public string Id { get; set; }
+
+        [JsonProperty("pollId")]
+        public string PollId { get; set; }
+
+        [JsonProperty("playerUserId")]
+        public string PlayerUserId { get; set; }
+
+        [JsonProperty("hashedPlayerUsername")]
+        public string HashedPlayerUsername { get; set; }
+
+        [JsonProperty("response")]
+        public SenseiPollVoteResponse Response { get; set; }
+
+        [JsonProperty("createdAt")]
+        public DateTime CreatedAt { get; set; }
+
+        [JsonProperty("updatedAt")]
+        public DateTime UpdatedAt { get; set; }
+    }
+    
+    public class SenseiPlayerPollVotesResponse {
+        [JsonProperty("ok")]
+        public bool Ok { get; set; }
+
+        [JsonProperty("data")] 
+        public List<SenseiPlayerPollVote> Data { get; set; }
 
         [JsonProperty("message")]
         public string Message { get; set; }

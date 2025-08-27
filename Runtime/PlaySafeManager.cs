@@ -510,6 +510,14 @@ namespace _DL.PlaySafe
             yield return StartCoroutine(SendFormCoroutine(VoiceModerationEndpoint, form));
         }
 
+        private IEnumerator SendTextForAnalysisCoroutine(string text)
+        {
+            yield return WaitForEndOfFrame;
+            WWWForm form = SetupForm();
+            form.AddField("text", text);
+            yield return StartCoroutine(SendFormCoroutine(VoiceModerationEndpoint, form));
+        }
+
         private IEnumerator SendFormCoroutine(string endpoint, WWWForm form)
         {
             using (UnityWebRequest www = UnityWebRequest.Post(PlaysafeBaseURL + endpoint, form))
@@ -1052,6 +1060,54 @@ namespace _DL.PlaySafe
             catch (Exception ex)
             {
                 LogError("Could not parse poll results response.");
+                LogException(ex);
+                return null;
+            }
+        }
+       
+        /// <summary>
+        /// Gets the voting results for a specific poll.
+        /// </summary>
+        /// <param name="pollId">The ID of the poll to get results for</param>
+        public async Task<SenseiPlayerPollVotesResponse?> GetPlayerPollVotesAsync(string pollId)
+        {
+            string playerUserId = GetTelemetry().UserId;
+
+            string url = $"{PlaysafeBaseURL}/sensei/polls/{pollId}/votes/player?userId={playerUserId}";
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
+
+            HttpResponseMessage response;
+            try
+            {
+                response = await _httpClient.SendAsync(request).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                LogError($"GetPlayerPollVotes network error: {ex.Message}");
+                LogException(ex);
+                return null;
+            }
+
+            string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                LogError($"GetPlayerPollVotes HTTP {(int)response.StatusCode}: {response.ReasonPhrase}");
+                Log(json);
+                return null;
+            }
+
+            try
+            {
+                var result = JsonConvert.DeserializeObject<SenseiPlayerPollVotesResponse>(json);
+                Log("Player poll votes retrieved successfully");
+                return result;
+            }
+            catch (Exception ex)
+            {
+                LogError("Could not parse player poll votes response.");
                 LogException(ex);
                 return null;
             }
