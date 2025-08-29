@@ -357,7 +357,6 @@ namespace _DL.PlaySafe
                 Microphone.End(null);
             }
 
-
 			if(shouldSendAudioClip && _hasFocus) {
                 Log("PlaySafeManager: Sending audio for processing)");
             	StartCoroutine(SendAudioClipForAnalysisCoroutine(_audioClipRecording));
@@ -510,7 +509,7 @@ namespace _DL.PlaySafe
             yield return StartCoroutine(SendFormCoroutine(VoiceModerationEndpoint, form));
         }
 
-        private IEnumerator SendTextForAnalysisCoroutine(string text)
+        public IEnumerator SendTextForAnalysisCoroutine(string text)
         {
             yield return WaitForEndOfFrame;
             WWWForm form = SetupForm();
