@@ -28,7 +28,8 @@ namespace _DL.PlaySafe
         [Header("Logging")]
         [SerializeField] private PlaySafeLogLevel logLevel = PlaySafeLogLevel.Info;
         
-        private const string PlaysafeBaseURL = "https://dl-voice-ai.dogelabs.workers.dev";
+        // private const string PlaysafeBaseURL = "https://dl-voice-ai.dogelabs.workers.dev";
+        private const string PlaysafeBaseURL = "http://localhost:8787";
         private const string VoiceModerationEndpoint = "/products/moderation";
         private const string ReportEndpoint = "/products/moderation";
         
@@ -51,9 +52,6 @@ namespace _DL.PlaySafe
         /// <summary>
         /// Called when an action is returned from voice moderation.
         /// </summary>
-        /// <summary>
-        /// Called when an action is returned from voice moderation.
-        /// </summary>
         public Action<ActionItem, DateTime> OnActionEvent { private get; set; }
 
         // Session state management
@@ -69,6 +67,7 @@ namespace _DL.PlaySafe
         public void Initialize()
         {
             Instance = this;
+
             if (CanRecord == null)
             {
                 LogError("Must set CanRecord delegate before initializing");
@@ -89,8 +88,19 @@ namespace _DL.PlaySafe
 
             _isInitialized = true;
             Setup();
+
+            // Invoke the initialization callback if set
+            OnPlaySafeInitialized?.Invoke(this);
+
             Log($"<color=#00FF00>PlaySafeManager is running!</color>");
         }
+
+
+
+        /// <summary>
+        /// Called when PlaySafeManager is successfully initialized.
+        /// </summary>
+        public Action<PlaySafeManager> OnPlaySafeInitialized { get; set; }
 
         private void Setup()
         {

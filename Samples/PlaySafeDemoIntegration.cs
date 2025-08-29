@@ -8,9 +8,11 @@ public class PlaySafeDemoIntegration : MonoBehaviour
     [SerializeField, Tooltip("The PlaySafeManager component to use for the demo.") ] PlaySafeManager playSafeManager;
     async void Start()
     {
+        Debug.Log("[invoked] PlaySafeDemoIntegration Start");
         playSafeManager.CanRecord = CanRecord;
         playSafeManager.GetTelemetry = GetTelemetry;
         playSafeManager.OnActionEvent = OnActionEvent;
+        playSafeManager.OnPlaySafeInitialized = OnPlaySafeInitialized;
         playSafeManager.Initialize();
 
         // Example: Get player status
@@ -29,6 +31,11 @@ public class PlaySafeDemoIntegration : MonoBehaviour
         //     var vote = await playSafeManager.CastVoteAsync(poll.Data.Id, "yes");
         //     var results = await playSafeManager.GetPollResultsAsync(poll.Data.Id);
         // }
+    }
+
+    private void OnPlaySafeInitialized(PlaySafeManager playSafeManager)
+    {
+        Debug.Log("[invoked] PlaySafeManager initialized", playSafeManager);
     }
     
     // When a user is banned / or timed out 
