@@ -17,6 +17,8 @@ public class PlaySafeNormcoreDemoIntegration : MonoBehaviour
         playSafeManager.CanRecord = CanRecord;
         playSafeManager.GetTelemetry = GetTelemetry;
         playSafeManager.OnActionEvent = OnActionEvent;
+        playSafeManager.OnPlaySafeInitialized = OnPlaySafeInitialized;
+        
         playSafeManager.Initialize();
 
         // Example: Get player status
@@ -35,6 +37,11 @@ public class PlaySafeNormcoreDemoIntegration : MonoBehaviour
         //     var vote = await playSafeManager.CastVoteAsync(poll.Data.Id, "yes");
         //     var results = await playSafeManager.GetPollResultsAsync(poll.Data.Id);
         // }
+    }
+
+    private void OnPlaySafeInitialized(PlaySafeManager playSafeManager)
+    {
+        Debug.Log("[invoked] PlaySafeManager initialized", playSafeManager);
     }
     
     // When a user is banned / or timed out 
