@@ -127,6 +127,9 @@ namespace _DL.PlaySafe
 
         [JsonProperty("playerStatsExpiryInDays")]
         public int PlayerStatsExpiryInDays { get; set; }
+        
+        [JsonProperty("sessionPulseIntervalSeconds")]
+        public int SessionPulseIntervalSeconds { get; set; }
     }
 
     //

@@ -53,13 +53,8 @@ namespace _DL.PlaySafe
         /// </summary>
         public Action<ActionItem, DateTime> OnActionEvent { private get; set; }
 
-        // Session state management
-        private enum SessionState { Inactive, Starting, Active, Ending }
-        private SessionState _currentSessionState = SessionState.Inactive;
-        private Coroutine _activeSessionCoroutine = null;
-        private float _lastSessionChangeTime = 0f;
-        private const float MIN_SESSION_CHANGE_INTERVAL = 2.0f; // seconds
-
+        private float _playerSessionIntervalInSeconds = 60;
+        
         /// <summary>
         /// Call this method to initialize the voice AI moderation system.
         /// </summary>
@@ -109,8 +104,6 @@ namespace _DL.PlaySafe
             }
             StartCoroutine(GetProductAIConfig());
             _lastRecording.Restart();
-            _currentSessionState = SessionState.Inactive;
-            _lastSessionChangeTime = 0f;
         }
 
         #endregion
@@ -165,6 +158,8 @@ namespace _DL.PlaySafe
             _photonPlaySafeProcessor = new PhotonPlaySafeProcessor();
             _photonPlaySafeProcessor.playSafeManager = this;
             #endif
+            
+            StartCoroutine(SendSessionPulseCoroutine());
         }
 
         private void Update()
@@ -616,264 +611,75 @@ namespace _DL.PlaySafe
             {
                 _hasFocus = hasFocus;
             }
-            if (GetTelemetry == null || GetTelemetry() == null)
-            {
-                return;
-            }
-            
-            if (!hasFocus)
-            {
-                TryEndSession();
-            }
-            else
-            {
-                TryStartSession();
-            }
-        }
-
-        private void OnApplicationPause (bool isPaused)
-        {            
-            if (GetTelemetry == null || GetTelemetry() == null)
-            {
-                return;
-            }
-            
-            if (isPaused)
-            {
-                TryEndSession();
-            }
-            else
-            {
-                TryStartSession();
-            }
         }
         
-        private IEnumerator PauseHandler (bool isPaused)
-        {
-            yield return null; // Let Unity settle down a bit
-
-            if (isPaused)
-            {
-                TryEndSession();
-            }
-            else
-            {
-                TryStartSession();
-            }
-        }
-
-        // Helper method to check if we can change session state
-        private bool CanChangeSessionState()
-        {
-            if (Time.time - _lastSessionChangeTime < MIN_SESSION_CHANGE_INTERVAL)
-            {
-                Log("PlaySafeManager: Session state change too frequent, ignoring request");
-                return false;
-            }
-                
-            _lastSessionChangeTime = Time.time;
-            return true;
-        }
-
         // Public methods to safely trigger session changes
-        public void TryStartSession()
+        private void SendSessionPulse()
         {
             string playerUserId = GetTelemetry().UserId;
-
-            if (string.IsNullOrEmpty(playerUserId))
-            {
-                LogError("PlaySafeManager: Cannot start session with null or empty user ID. Please ensure GetTelemetry() is correctly implemented.");
-                return;
-            }
-
-            // Check if we're already in the desired state or transitioning to it
-            if (_currentSessionState == SessionState.Active || _currentSessionState == SessionState.Starting)
-            {
-    
-                Log("Different user ending current session");
-                // Different user, end current session first
-                TryEndSession();
-            }
-
-            // Check cooldown period
-            if (!CanChangeSessionState())
-                return;
-
-            // Cancel any active session coroutine
-            if (_activeSessionCoroutine != null)
-            {
-                StopCoroutine(_activeSessionCoroutine);
-                _activeSessionCoroutine = null;
-            }
-
-            // Start new session
-            _currentSessionState = SessionState.Starting;
-            _activeSessionCoroutine = StartCoroutine(StartSessionInternal());
+            string playerUsername = GetTelemetry().UserName;
+            
+            
         }
-
-        public void TryEndSession()   
-        {
-            string playerUserId = GetTelemetry().UserId;
-            
-            if (string.IsNullOrEmpty(playerUserId))
-            {
-                LogError("PlaySafeManager: Cannot end session with null or empty user ID");
-                return;
-            }
-
-            // Check if we're already in the desired state or transitioning to it
-            if (_currentSessionState == SessionState.Inactive || _currentSessionState == SessionState.Ending)
-            {
-                Log("PlaySafeManager: Session already inactive or ending");
-                return;
-            }
-
-            // Check cooldown period
-            if (!CanChangeSessionState())
-                return;
-
-            // Cancel any active session coroutine
-            if (_activeSessionCoroutine != null)
-            {
-                StopCoroutine(_activeSessionCoroutine);
-                _activeSessionCoroutine = null;
-            }
-
-            // End session
-            _currentSessionState = SessionState.Ending;
-            _activeSessionCoroutine = StartCoroutine(EndSessionInternal());
-        }
-
-        /// <summary>
-        /// Starts a new session. If a session is already running (and was not properly ended), it is automatically ended and marked as decayed.
-        /// </summary>
-        /// <param name="playerUserId">The unique identifier for the player.</param>
-        private IEnumerator StartSessionInternal()
-        {
-            string playerUserId = GetTelemetry().UserId;
-            string playerUserName = GetTelemetry().UserName;
-            
-            string url = PlaysafeBaseURL + "/player/session/start";
-
-            var requestBody = new
-            {
-                playerUserId = playerUserId,
-                playerUserName = playerUserName
-            };
-
-            string json = JsonConvert.SerializeObject(requestBody);
-            byte[] jsonToSend = Encoding.UTF8.GetBytes(json);
-
-            using (UnityWebRequest www = new UnityWebRequest(url, "POST"))
-            {
-                www.uploadHandler = new UploadHandlerRaw(jsonToSend);
-                www.downloadHandler = new DownloadHandlerBuffer();
-                www.SetRequestHeader("Content-Type", "application/json");
-                www.SetRequestHeader("Authorization", "Bearer " + appKey);
-
-                yield return www.SendWebRequest();
-
-                if (www.result != UnityWebRequest.Result.Success)
-                {
-                    LogError("StartSession error: " + www.error);
-                    Log(www.downloadHandler.text);
-                    _currentSessionState = SessionState.Inactive;
-                }
-                else
-                {
-                    Log("Session started successfully");
-                    Log(www.downloadHandler.text);
-                    _currentSessionState = SessionState.Active;
-                }
-                
-                _activeSessionCoroutine = null;
-            }
-        }
-
-        /// <summary>
-        /// Ends the current session. This call always returns a consistent response even if no session was active.
-        /// </summary>
-        /// <param name="playerUserId">The unique identifier for the player.</param>
-        private IEnumerator EndSessionInternal()
-        {
-            string playerUserId = GetTelemetry().UserId;
-            string playerUserName = GetTelemetry().UserName;
-
-            string url = PlaysafeBaseURL + "/player/session/end";
-            
-            var requestBody = new
-            {
-                playerUserId = playerUserId,
-                playerUserName = playerUserName
-            };
-
-            string json = JsonConvert.SerializeObject(requestBody);
-            byte[] jsonToSend = Encoding.UTF8.GetBytes(json);
-
-            using (UnityWebRequest www = new UnityWebRequest(url, "POST"))
-            {
-                www.uploadHandler = new UploadHandlerRaw(jsonToSend);
-                www.downloadHandler = new DownloadHandlerBuffer();
-                www.SetRequestHeader("Content-Type", "application/json");
-                www.SetRequestHeader("Authorization", "Bearer " + appKey);
-
-                yield return www.SendWebRequest();
-
-                if (www.result != UnityWebRequest.Result.Success)
-                {
-                    LogError("EndSession error: " + www.error);
-                    Log(www.downloadHandler.text);
-                }
-                else
-                {
-                    Log("Session ended successfully");
-                    Log(www.downloadHandler.text);
-                }
-                
-                _currentSessionState = SessionState.Inactive;
-                _activeSessionCoroutine = null;
-            }
-        }
-
-        // Public methods to maintain backward compatibility
-        /// <summary>
-        /// Starts a new session. If a session is already running (and was not properly ended), it is automatically ended and marked as decayed.
-        /// </summary>
-        /// <param name="playerUserId">The unique identifier for the player.</param>
-        public IEnumerator StartSession(string playerUserId)
-        {
-            TryStartSession();
-            
-            // Wait until the session is no longer in Starting state
-            while (_currentSessionState == SessionState.Starting)
-            {
-                yield return null;
-            }
-            
-            // Return success based on final state
-            yield return _currentSessionState == SessionState.Active;
-        }
-
-        /// <summary>
-        /// Ends the current session. This call always returns a consistent response even if no session was active.
-        /// </summary>
-        /// <param name="playerUserId">The unique identifier for the player.</param>
-        public IEnumerator EndSession(string playerUserId)
-        {
-            TryEndSession();
-            
-            // Wait until the session is no longer in Ending state
-            while (_currentSessionState == SessionState.Ending)
-            {
-                yield return null;
-            }
-            
-            // Return success based on final state
-            yield return _currentSessionState == SessionState.Inactive;
-        }
-
+        
         #endregion
 
+        #region Player Sessions
+        
+        IEnumerator SendSessionPulseCoroutine()
+        {
+            var wait = new WaitForSecondsRealtime(_playerSessionIntervalInSeconds);
+            
+            while (true)
+            {
+                yield return wait; // yields back to Unity; gameplay continues
+
+                var task = SendSessionPulseAsync();
+
+                // Poll the task without blocking
+                while (!task.IsCompleted)
+                    yield return null; // yield each frame until it’s done
+
+                if (task.IsFaulted)
+                    Debug.LogException(task.Exception);
+            }
+        }
+
+        
+        async Task SendSessionPulseAsync()
+        {
+            string url = $"{PlaysafeBaseURL}/player/session/pulse";
+            string playerUserId = GetTelemetry().UserId;
+            string playerUsername = GetTelemetry().UserName;
+            
+            var requestBody = new
+            {
+                playerUserId,   
+                playerUsername
+            };
+
+            string json = JsonConvert.SerializeObject(requestBody);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, url);
+            request.Content = content;
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
+
+            HttpResponseMessage httpResponse;
+            try
+            {
+                Debug.Log($"[SendSessionPulse] Sending session pulse");
+                httpResponse = await _httpClient.SendAsync(request).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                LogError($"SendSessionPulse network error: {ex.Message}");
+                LogException(ex);
+                return;
+            }
+        }
+        #endregion
+        
         #region Web API Calls
 
         private IEnumerator GetProductAIConfig()
@@ -907,6 +713,7 @@ namespace _DL.PlaySafe
                     _recordingIntermissionSeconds = samplingRate > 0.000001f
                         ? Mathf.Max(0, (int)((RecordingDurationSeconds / samplingRate) - RecordingDurationSeconds))
                         : int.MaxValue;
+                    _playerSessionIntervalInSeconds = config.SessionPulseIntervalSeconds;
                     
                     _silenceThreshold = config.AudioSilenceThreshold;
                     Log($"Silence Threshold: {_silenceThreshold}");
@@ -922,7 +729,7 @@ namespace _DL.PlaySafe
                 LogException(e);
             }
         }
-
+        
         /// <summary>
         /// Gets the currently active poll for the product.
         /// </summary>
