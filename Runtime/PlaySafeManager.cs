@@ -484,8 +484,12 @@ namespace _DL.PlaySafe
             WWWForm form = new WWWForm();
 
             form.AddField("userId", telemetry.UserId);
-            form.AddField("username", telemetry.UserName);
             form.AddField("roomId", telemetry.RoomId);
+            
+            if(telemetry.UserName !== null) 
+            {
+                form.AddField("username", telemetry.UserName);
+            }
 
             return form;
         }
@@ -613,15 +617,6 @@ namespace _DL.PlaySafe
             }
         }
         
-        // Public methods to safely trigger session changes
-        private void SendSessionPulse()
-        {
-            string playerUserId = GetTelemetry().UserId;
-            string playerUsername = GetTelemetry().UserName;
-            
-            
-        }
-        
         #endregion
 
         #region Player Sessions
@@ -655,7 +650,7 @@ namespace _DL.PlaySafe
             var requestBody = new
             {
                 playerUserId,   
-                playerUsername
+                playerUsername = string.IsNullOrEmpty(playerUsername) ? null : playerUsername
             };
 
             string json = JsonConvert.SerializeObject(requestBody);
