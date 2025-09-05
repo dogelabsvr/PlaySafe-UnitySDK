@@ -486,7 +486,7 @@ namespace _DL.PlaySafe
             form.AddField("userId", telemetry.UserId);
             form.AddField("roomId", telemetry.RoomId);
             
-            if(telemetry.UserName !== null) 
+            if(telemetry.UserName != null) 
             {
                 form.AddField("username", telemetry.UserName);
             }
