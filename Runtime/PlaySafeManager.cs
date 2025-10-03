@@ -984,6 +984,13 @@ namespace _DL.PlaySafe
             string url = $"{PlaysafeBaseURL}/sensei/polls/{pollId}/votes";
             string playerUsername = GetTelemetry().UserName;
             
+            // Validate that player username is available
+            if (string.IsNullOrEmpty(playerUsername))
+            {
+                LogError("AppealBan failed: Player username is required. Ensure GetTelemetry().UserName is properly set.");
+                throw new InvalidOperationException("Player username is required for ban appeal. Please configure GetTelemetry to return a valid UserName.");
+            }
+
             var requestBody = new Dictionary<string, object>
             {
                 { "playerUsername", playerUsername }
