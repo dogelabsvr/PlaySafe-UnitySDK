@@ -86,21 +86,19 @@ namespace _DL.PlaySafe
     }
     //#endregion
 
-    public class ActionItem
+    //#region Ban Appeal
+    public class BanAppealResponse
     {
-        [JsonProperty("action")]
-        public string Action { get; set; }
-
-        [JsonProperty("durationInMinutes")]
-        public int DurationInMinutes { get; set; }
-
-        [JsonProperty("actionEndDate")]
-        public DateTime ActionEndDate { get; set; }
-
-        [JsonProperty("reason")]
-        public string Reason { get; set; }
+        [JsonProperty("ok")]
+        public bool Ok { get; set; }
+        
+        [JsonProperty("data")]
+        public bool Data { get; set; }
+        
+        [JsonProperty("message")]
+        public string Message { get; set; }
     }
-
+    //#endregion
 
     public class RemoteConfigVoiceAIResponse
     {
