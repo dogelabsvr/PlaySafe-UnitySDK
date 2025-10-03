@@ -54,7 +54,7 @@ namespace _DL.PlaySafe
         public Action<ActionItem, DateTime> OnActionEvent { private get; set; }
 
         private float _playerSessionIntervalInSeconds = 60;
-        
+
         /// <summary>
         /// Call this method to initialize the voice AI moderation system.
         /// </summary>
@@ -211,15 +211,13 @@ namespace _DL.PlaySafe
 
         #region Photon Specific
         #if PHOTON_VOICE_DEFINED
-            // init PlaySafe once we set up photon voice; called from Photon's Recorder via SendMessage
-        public void PhotonVoiceCreated (PhotonVoiceCreatedParams voiceCreatedParams)
-        {
-            Log("Photon voice created, initializing PlaySafe");
-            Initialize();
 
+        public void SetupPhotonVoice (PhotonVoiceCreatedParams voiceCreatedParams)
+        {
             var voice = voiceCreatedParams.Voice as LocalVoiceAudioFloat;
             if (voice != null)
             {
+                Debug.Log("SetupPhotonVoice: Photon voice created");
                 channelCount = voice.Info.Channels;
                 sampleRate = voice.Info.SamplingRate;
                 
