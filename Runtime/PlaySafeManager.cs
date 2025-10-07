@@ -973,6 +973,64 @@ namespace _DL.PlaySafe
             }
         }
 
+         /// <summary>
+        /// Gets the current status of a player including any active violations.
+        /// </summary>
+        public async Task<BanAppealResponse?> AppealBanAsync(string appealReason)
+        {
+            string url = $"{PlaysafeBaseURL}/ban-appeals";
+            string playerUsername = GetTelemetry().UserName;
+            
+            var requestBody = new 
+            {
+                playerUsername,
+                appealReason = !string.IsNullOrEmpty(appealReason) ? appealReason : null
+            };
+            
+
+            string json = JsonConvert.SerializeObject(requestBody);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, url);
+            request.Content = content;
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
+
+            HttpResponseMessage httpResponse;
+            try
+            {
+                httpResponse = await _httpClient.SendAsync(request).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                LogError($"AppealBan network error: {ex.Message}");
+                LogException(ex);
+                return null;
+            }
+
+            string responseJson = await httpResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+            if (!httpResponse.IsSuccessStatusCode)
+            {
+                LogError($"AppealBan HTTP {(int)httpResponse.StatusCode}: {httpResponse.ReasonPhrase}");
+                Log(responseJson);
+                return null;
+            }
+
+            try
+            {
+                Log("AppealBan response: " + responseJson);
+                var result = JsonConvert.DeserializeObject<BanAppealResponse>(responseJson);
+                Log("Ban appeal successful");
+                return result;
+            }
+            catch (Exception ex)
+            {
+                LogError("Could not parse ban appeal response.");
+                LogException(ex);
+                return null;
+            }
+        }
+
         #endregion
 
         #region Data Classes
