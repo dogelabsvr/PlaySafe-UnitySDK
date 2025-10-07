@@ -86,19 +86,21 @@ namespace _DL.PlaySafe
     }
     //#endregion
 
-    //#region Ban Appeal
-    public class BanAppealResponse
+    public class ActionItem
     {
-        [JsonProperty("ok")]
-        public bool Ok { get; set; }
-        
-        [JsonProperty("data")]
-        public bool Data { get; set; }
-        
-        [JsonProperty("message")]
-        public string Message { get; set; }
+        [JsonProperty("action")]
+        public string Action { get; set; }
+
+        [JsonProperty("durationInMinutes")]
+        public int DurationInMinutes { get; set; }
+
+        [JsonProperty("actionEndDate")]
+        public DateTime ActionEndDate { get; set; }
+
+        [JsonProperty("reason")]
+        public string Reason { get; set; }
     }
-    //#endregion
+
 
     public class RemoteConfigVoiceAIResponse
     {
@@ -260,4 +262,18 @@ namespace _DL.PlaySafe
         [JsonProperty("message")]
         public string Message { get; set; }
     }
+
+    //#region Ban Appeal
+    public class BanAppealResponse
+    {
+        [JsonProperty("ok")]
+        public bool Ok { get; set; }
+        
+        [JsonProperty("data")]
+        public bool Data { get; set; }
+        
+        [JsonProperty("message")]
+        public string Message { get; set; }
+    }
+    //#endregion
 }
