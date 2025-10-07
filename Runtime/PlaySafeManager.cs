@@ -650,7 +650,6 @@ namespace _DL.PlaySafe
                 playerUserId,   
                 playerUsername = string.IsNullOrEmpty(playerUsername) ? null : playerUsername
             };
-
             string json = JsonConvert.SerializeObject(requestBody);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
 
@@ -969,74 +968,6 @@ namespace _DL.PlaySafe
             catch (Exception ex)
             {
                 LogError("Could not parse player status response.");
-                LogException(ex);
-                return null;
-            }
-        }
-        
-        /// <summary>
-        /// Gets the current status of a player including any active violations.
-        /// </summary>
-        public async Task<PlayerStatusResponse?> AppealBanAsync(string appealReason)
-        {
-            string url = $"{PlaysafeBaseURL}/sensei/polls/{pollId}/votes";
-            string playerUsername = GetTelemetry().UserName;
-            
-            // Validate that player username is available
-            if (string.IsNullOrEmpty(playerUsername))
-            {
-                LogError("AppealBan failed: Player username is required. Ensure GetTelemetry().UserName is properly set.");
-                throw new InvalidOperationException("Player username is required for ban appeal. Please configure GetTelemetry to return a valid UserName.");
-            }
-
-            var requestBody = new Dictionary<string, object>
-            {
-                { "playerUsername", playerUsername }
-            };
-            
-            if (!string.IsNullOrEmpty(appealReason))
-            {
-                requestBody.Add("appealReason", appealReason);
-            }
-
-            string json = JsonConvert.SerializeObject(requestBody);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-            using var request = new HttpRequestMessage(HttpMethod.Post, url);
-            request.Content = content;
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
-
-            HttpResponseMessage httpResponse;
-            try
-            {
-                httpResponse = await _httpClient.SendAsync(request).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                LogError($"AppealBan network error: {ex.Message}");
-                LogException(ex);
-                return null;
-            }
-
-            string responseJson = await httpResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
-
-            if (!httpResponse.IsSuccessStatusCode)
-            {
-                LogError($"AppealBan HTTP {(int)httpResponse.StatusCode}: {httpResponse.ReasonPhrase}");
-                Log(responseJson);
-                return null;
-            }
-
-            try
-            {
-                Log("AppealBan response: " + responseJson);
-                var result = JsonConvert.DeserializeObject<BanAppealResponse>(responseJson);
-                Log("Ban appeal successful");
-                return result;
-            }
-            catch (Exception ex)
-            {
-                LogError("Could not parse ban appeal response.");
                 LogException(ex);
                 return null;
             }
