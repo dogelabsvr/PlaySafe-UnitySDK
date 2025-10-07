@@ -172,7 +172,13 @@ namespace _DL.PlaySafe
         public string Id { get; set; }
 
         [JsonProperty("question")] 
-        public string Question { get; set; }
+        public string Question { get; set; }   
+        
+        [JsonProperty("assetUrl")] 
+        public string AssetUrl { get; set; }        
+        
+        [JsonProperty("assetType")] 
+        public string AssetType { get; set; }
 
         [JsonProperty("options")]
         public List<string> Options { get; set; }
