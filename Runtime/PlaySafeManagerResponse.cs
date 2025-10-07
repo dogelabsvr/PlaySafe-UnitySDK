@@ -174,7 +174,13 @@ namespace _DL.PlaySafe
         public string Id { get; set; }
 
         [JsonProperty("question")] 
-        public string Question { get; set; }
+        public string Question { get; set; }   
+        
+        [JsonProperty("assetUrl")] 
+        public string AssetUrl { get; set; }        
+        
+        [JsonProperty("assetType")] 
+        public string AssetType { get; set; }
 
         [JsonProperty("options")]
         public List<string> Options { get; set; }
@@ -256,4 +262,18 @@ namespace _DL.PlaySafe
         [JsonProperty("message")]
         public string Message { get; set; }
     }
+
+    //#region Ban Appeal
+    public class BanAppealResponse
+    {
+        [JsonProperty("ok")]
+        public bool Ok { get; set; }
+        
+        [JsonProperty("data")]
+        public bool Data { get; set; }
+        
+        [JsonProperty("message")]
+        public string Message { get; set; }
+    }
+    //#endregion
 }
