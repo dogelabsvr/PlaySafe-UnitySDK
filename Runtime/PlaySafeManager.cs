@@ -976,7 +976,7 @@ namespace _DL.PlaySafe
          /// <summary>
         /// Gets the current status of a player including any active violations.
         /// </summary>
-        public async Task<BanAppealResponse?> AppealBanAsync(string appealReason)
+        public async Task<BanAppealResponse?> AppealBanAsync(string appealReason = null)
         {
             string url = $"{PlaysafeBaseURL}/ban-appeals";
             string playerUsername = GetTelemetry().UserName;
