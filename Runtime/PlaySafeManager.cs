@@ -571,6 +571,8 @@ namespace _DL.PlaySafe
             }
         }
 
+        // TODO: Deprecate this method in favor of the async version + mention the removal of the reporter user id argument
+        [Obsolete("Use ReportUserAsync instead. The reporterUserId parameter has been removed and is now automatically retrieved from telemetry. This method will be removed in a future version.")]
         /// <summary>
         /// Reports a user via a POST call.
         /// </summary>
@@ -603,6 +605,49 @@ namespace _DL.PlaySafe
             {
                 Log("PlaySafeManager: Report upload complete!");
                 Log(www.downloadHandler.text);
+            }
+        }
+
+        /// <summary>
+        /// Reports a user via a POST call (async version).
+        /// </summary>
+        public async Task ReportUserAsync(string targetUserId, string eventType)
+        {
+            string url = $"{PlaysafeBaseURL}{ReportEndpoint}/{eventType}";
+
+            var reportRequest = new PlayerReportRequest
+            {
+                reporterPlayerUserId = GetTelemetry().UserId,
+                targetPlayerUserId = targetUserId
+            };
+
+            string json = JsonConvert.SerializeObject(reportRequest);
+
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
+            using var request = new HttpRequestMessage(HttpMethod.Post, url);
+            request.Content = content;
+            request.Headers.Add("Authorization", $"Bearer {appKey}");
+
+            try
+            {
+                var response = await _httpClient.SendAsync(request);
+                string responseBody = await response.Content.ReadAsStringAsync();
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    LogError($"ReportUser error: {response.StatusCode}");
+                    Log(responseBody);
+                }
+                else
+                {
+                    Log("PlaySafeManager: Report upload complete!");
+                    Log(responseBody);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogError($"ReportUser exception: {ex.Message}");
+                LogException(ex);
             }
         }
 
