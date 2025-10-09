@@ -628,31 +628,42 @@ namespace _DL.PlaySafe
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
             using var request = new HttpRequestMessage(HttpMethod.Post, url);
             request.Content = content;
-            request.Headers.Add("Authorization", $"Bearer {appKey}");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
 
+            HttpResponseMessage httpResponse;
             try
             {
-                var response = await _httpClient.SendAsync(request);
-                string responseBody = await response.Content.ReadAsStringAsync();
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    LogError($"ReportUser error: {response.StatusCode}");
-                    Log(responseBody);
-                }
-                else
-                {
-                    Log("PlaySafeManager: Report upload complete!");
-                    Log(responseBody);
-                }
+                httpResponse = await _httpClient.SendAsync(request).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                LogError($"ReportUser exception: {ex.Message}");
+                LogError($"ReportUser network error: {ex.Message}");
                 LogException(ex);
+                return null;
             }
 
-            return null;
+            string responseBody = await httpResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+            if (!httpResponse.IsSuccessStatusCode)
+            {
+                LogError($"ReportUser HTTP {(int)httpResponse.StatusCode}: {httpResponse.ReasonPhrase}");
+                Log(responseBody);
+                return null;
+            }
+
+            try
+            {
+                Log("PlaySafeManager: Report upload complete!");
+                Log(responseBody);
+                var result = JsonConvert.DeserializeObject<ModerationEventResponse>(responseBody);
+                return result;
+            }
+            catch (Exception ex)
+            {
+                LogError("Could not parse report user response.");
+                LogException(ex);
+                return null;
+            }
         }
 
         private bool _hasFocus = true;
