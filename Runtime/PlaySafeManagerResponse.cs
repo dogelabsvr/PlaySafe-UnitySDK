@@ -1,23 +1,27 @@
+#nullable enable
 using System;
 using Newtonsoft.Json;
 using System.Collections.Generic;
 
 namespace _DL.PlaySafe  
-{   
-    public class PlaySafeActionResponse
+{
+
+    public class PlaySafeApiResponse : PlaySafeApiResponse<object> {}
+    
+    public class PlaySafeApiResponse<T>
     {
-        // Indicates whether the operation was successful
         [JsonProperty("ok")]
         public bool Ok { get; set; }
-
-        // Contains the data returned by the operation
+        
         [JsonProperty("data")]
-        public DataRecommendation Data { get; set; }
-
-        // A message describing the result of the operation
+        public T? Data { get; set; }
+        
         [JsonProperty("message")]
         public string Message { get; set; }
     }
+
+    public class PlaySafeActionResponse : PlaySafeApiResponse<DataRecommendation> {}
+    
 
     public class DataRecommendation
     {
@@ -46,17 +50,7 @@ namespace _DL.PlaySafe
     }
 
     //#region Player Status
-    public class PlayerStatusResponse
-    {
-        [JsonProperty("ok")]
-        public bool Ok { get; set; }
-        
-        [JsonProperty("data")]
-        public PlayerStatusData Data { get; set; }
-        
-        [JsonProperty("message")]
-        public string Message { get; set; }
-    }
+    public class PlayerStatusResponse : PlaySafeApiResponse<PlayerStatusData> {}
 
     public class PlayerStatusData
     {
@@ -102,17 +96,8 @@ namespace _DL.PlaySafe
     }
 
 
-    public class RemoteConfigVoiceAIResponse
-    {
-        [JsonProperty("ok")]
-        public bool Ok { get; set; }
+    public class RemoteConfigVoiceAIResponse: PlaySafeApiResponse<RemoteConfigVoiceAIData>{}
 
-        [JsonProperty("data")]
-        public RemoteConfigVoiceAIData Data { get; set; }
-
-        [JsonProperty("message")]
-        public string Message { get; set; }
-    }
 
     public class RemoteConfigVoiceAIData
     {
@@ -158,16 +143,7 @@ namespace _DL.PlaySafe
         public DateTime UpdatedAt { get; set; }
     } 
 
-    public class SenseiPollCastVoteResponse { 
-        [JsonProperty("ok")]
-        public bool Ok { get; set; }
-
-        [JsonProperty("data")]
-        public SenseiPollCastVoteData Data { get; set; }
-
-        [JsonProperty("message")]
-        public string Message { get; set; }
-    }
+    public class SenseiPollCastVoteResponse : PlaySafeApiResponse<SenseiPollCastVoteData> {}
 
     public class ActiveSenseiPollData {
         [JsonProperty("id")]
@@ -198,16 +174,7 @@ namespace _DL.PlaySafe
         public bool IsActive { get; set; }
     }
 
-    public class ActiveSenseiPollResponse {
-        [JsonProperty("ok")]
-        public bool Ok { get; set; }
-
-        [JsonProperty("data")]
-        public ActiveSenseiPollData Data { get; set; }  
-
-        [JsonProperty("message")]
-        public string Message { get; set; }
-    }
+    public class ActiveSenseiPollResponse: PlaySafeApiResponse<ActiveSenseiPollData> {}
 
     public class SenseiPollVoteResultsData {
         [JsonProperty("votes")]
@@ -217,16 +184,7 @@ namespace _DL.PlaySafe
         public Dictionary<string, int> Breakdown { get; set; }
     }
 
-    public class SenseiPollVoteResultsResponse {
-        [JsonProperty("ok")]
-        public bool Ok { get; set; }
-
-        [JsonProperty("data")] 
-        public SenseiPollVoteResultsData Data { get; set; }
-
-        [JsonProperty("message")]
-        public string Message { get; set; }
-    }
+    public class SenseiPollVoteResultsResponse: PlaySafeApiResponse<SenseiPollVoteResultsData> {}
 
     public class SenseiPlayerPollVote
     {
@@ -252,29 +210,10 @@ namespace _DL.PlaySafe
         public DateTime UpdatedAt { get; set; }
     }
     
-    public class SenseiPlayerPollVotesResponse {
-        [JsonProperty("ok")]
-        public bool Ok { get; set; }
-
-        [JsonProperty("data")] 
-        public List<SenseiPlayerPollVote> Data { get; set; }
-
-        [JsonProperty("message")]
-        public string Message { get; set; }
-    }
+    public class SenseiPlayerPollVotesResponse : PlaySafeApiResponse<List<SenseiPlayerPollVote>> {}
 
     //#region Ban Appeal
-    public class BanAppealResponse
-    {
-        [JsonProperty("ok")]
-        public bool Ok { get; set; }
-        
-        [JsonProperty("data")]
-        public bool Data { get; set; }
-        
-        [JsonProperty("message")]
-        public string Message { get; set; }
-    }
+    public class BanAppealResponse: PlaySafeApiResponse<bool> {}
     //#endregion
 
     //#region Moderation events
@@ -305,16 +244,7 @@ namespace _DL.PlaySafe
         public DateTime UpdatedAt { get; set; }
     }
 
-    public class ModerationEventResponse
-    {
-        [JsonProperty("ok")]
-        public bool Ok { get; set; }
+    public class ModerationEventResponse : PlaySafeApiResponse<ModerationEvent>  {}
 
-        [JsonProperty("data")]
-        public ModerationEvent Data { get; set; }
-
-        [JsonProperty("message")]
-        public string Message { get; set; }
-    }
     //#endregion
 }

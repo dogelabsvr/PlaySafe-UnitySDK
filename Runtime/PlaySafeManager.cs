@@ -666,6 +666,63 @@ namespace _DL.PlaySafe
             }
         }
 
+        /// <summary>
+        /// Undoes a report on a user via a POST call (async version).
+        /// </summary>
+        [ItemCanBeNull]
+        public async Task<PlaySafeApiResponse> UnReportUserAsync(string targetUserId, string eventType)
+        {
+            string url = $"{PlaysafeBaseURL}{ReportEndpoint}/{eventType}/undo";
+
+            var reportRequest = new PlayerReportRequest
+            {
+                reporterPlayerUserId = GetTelemetry().UserId,
+                targetPlayerUserId = targetUserId
+            };
+
+            string json = JsonConvert.SerializeObject(reportRequest);
+
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
+            using var request = new HttpRequestMessage(HttpMethod.Post, url);
+            request.Content = content;
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
+
+            HttpResponseMessage httpResponse;
+            try
+            {
+                httpResponse = await _httpClient.SendAsync(request).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                LogError($"ReportUser network error: {ex.Message}");
+                LogException(ex);
+                return null;
+            }
+
+            string responseBody = await httpResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+            if (!httpResponse.IsSuccessStatusCode)
+            {
+                LogError($"ReportUser HTTP {(int)httpResponse.StatusCode}: {httpResponse.ReasonPhrase}");
+                Log(responseBody);
+                return null;
+            }
+
+            try
+            {
+                Log("PlaySafeManager: Report upload complete!");
+                Log(responseBody);
+                var result = JsonConvert.DeserializeObject<PlaySafeApiResponse>(responseBody);
+                return result;
+            }
+            catch (Exception ex)
+            {
+                LogError("Could not parse report user response.");
+                LogException(ex);
+                return null;
+            }
+        }
+
         private bool _hasFocus = true;
         private void OnApplicationFocus(bool hasFocus)
         {
