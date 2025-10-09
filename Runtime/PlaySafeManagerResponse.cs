@@ -276,4 +276,45 @@ namespace _DL.PlaySafe
         public string Message { get; set; }
     }
     //#endregion
+
+    //#region Moderation events
+    public class ModerationEvent
+    {
+        [JsonProperty("id")]
+        public string Id { get; set; }
+
+        [JsonProperty("productId")]
+        public string ProductId { get; set; }
+
+        [JsonProperty("reporterPlayerUserId")]
+        public string ReporterPlayerUserId { get; set; }
+
+        [JsonProperty("reporterRole")]
+        public string ReporterRole { get; set; }
+
+        [JsonProperty("targetPlayerUserId")]
+        public string TargetPlayerUserId { get; set; }
+
+        [JsonProperty("eventType")]
+        public string EventType { get; set; }
+
+        [JsonProperty("createdAt")]
+        public DateTime CreatedAt { get; set; }
+
+        [JsonProperty("updatedAt")]
+        public DateTime UpdatedAt { get; set; }
+    }
+
+    public class ModerationEventResponse
+    {
+        [JsonProperty("ok")]
+        public bool Ok { get; set; }
+
+        [JsonProperty("data")]
+        public ModerationEvent Data { get; set; }
+
+        [JsonProperty("message")]
+        public string Message { get; set; }
+    }
+    //#endregion
 }

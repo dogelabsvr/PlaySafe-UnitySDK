@@ -19,6 +19,7 @@ using Debug = UnityEngine.Debug;
 #endif
 using System.Net.Http;
 using System.Net.Http.Headers;
+using JetBrains.Annotations;
 
 namespace _DL.PlaySafe
 {
@@ -611,7 +612,8 @@ namespace _DL.PlaySafe
         /// <summary>
         /// Reports a user via a POST call (async version).
         /// </summary>
-        public async Task ReportUserAsync(string targetUserId, string eventType)
+        [ItemCanBeNull]
+        public async Task<ModerationEventResponse> ReportUserAsync(string targetUserId, string eventType)
         {
             string url = $"{PlaysafeBaseURL}{ReportEndpoint}/{eventType}";
 
@@ -649,6 +651,8 @@ namespace _DL.PlaySafe
                 LogError($"ReportUser exception: {ex.Message}");
                 LogException(ex);
             }
+
+            return null;
         }
 
         private bool _hasFocus = true;
