@@ -31,6 +31,7 @@ namespace _DL.PlaySafe
         
         private const string PlaysafeBaseURL = "https://dl-voice-ai.dogelabs.workers.dev";
         private const string VoiceModerationEndpoint = "/products/moderation";
+        private const string PlayTestNotesTranscriptEndpoint = "/dev/notes";
         private const string ReportEndpoint = "/products/moderation";
         
         #region Singleton & Initialization
@@ -152,6 +153,13 @@ namespace _DL.PlaySafe
 
         #endregion
 
+        #region Playtest related
+        private float _syncProductIsTakingNotesIntervalInSeconds = 1.0f;
+        private bool _shouldRecordPlayTestNotes = false;
+        private string _playTestNotesId;
+
+        #endregion 
+
         #region Unity Lifecycle
         private void Start() {
             // Photon specific setup
@@ -161,6 +169,7 @@ namespace _DL.PlaySafe
             #endif
             
             StartCoroutine(SendSessionPulseCoroutine());
+            StartCoroutine(SyncProductIsTakingNotesCoroutine());
         }
 
         private void Update()
@@ -257,6 +266,8 @@ namespace _DL.PlaySafe
         private bool ShouldRecord()
         {
             if (Application.isEditor && debugEnableRecord && !_isRecording)
+                return true;
+            else if(_shouldRecordPlayTestNotes)
                 return true;
 
             return !_isRecording &&
@@ -513,7 +524,22 @@ namespace _DL.PlaySafe
             WWWForm form = SetupForm();
             form.AddBinaryData("audio", wavFileBytes, "audio.wav", "audio/wav");
             yield return WaitForEndOfFrame;
-            yield return StartCoroutine(SendFormCoroutine(VoiceModerationEndpoint, form));
+
+
+            if(_shouldRecordPlayTestNotes) {
+                form.AddField("playerUserId", GetTelemetry().UserId);
+
+                if(!string.IsNullOrEmpty(_playTestNotesId)) {
+                    form.AddField("playTestNotesId", _playTestNotesId);
+                }
+
+                Debug.Log("PlaySafeManager: Taking notes, sending audio for transcription");
+
+                yield return StartCoroutine(SendFormCoroutine(PlayTestNotesTranscriptEndpoint, form));
+            }else { // Disable moderation when taking playtest notes
+                yield return StartCoroutine(SendFormCoroutine(VoiceModerationEndpoint, form));
+            }
+            
         }
 
         public IEnumerator SendTextForAnalysisCoroutine(string text)
@@ -1149,6 +1175,203 @@ namespace _DL.PlaySafe
         }
 
         #endregion
+
+        #region Playtest related
+        public async Task<PlayTestNotesResponse> StartTakingNotesAsync()
+        {
+            string url = PlaysafeBaseURL + "/dev/notes";
+
+            string playerUserId = GetTelemetry().UserId;
+
+            var requestBody = new
+            {
+                playerUserId = playerUserId
+            };
+
+            string json = JsonConvert.SerializeObject(requestBody);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, url);
+            request.Content = content;
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
+
+            HttpResponseMessage httpResponse;
+            try
+            {
+                httpResponse = await _httpClient.SendAsync(request).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                LogError($"StartTakingNotes network error: {ex.Message}");
+                LogException(ex);
+                return null;
+            }
+
+            string responseJson = await httpResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+            if (!httpResponse.IsSuccessStatusCode)
+            {
+                LogError($"StartTakingNotes HTTP {(int)httpResponse.StatusCode}: {httpResponse.ReasonPhrase}");
+                Log(responseJson);
+                return null;
+            }
+
+            try
+            {
+                Log("StartTakingNotes response: " + responseJson);
+                var result = JsonConvert.DeserializeObject<PlayTestNotesResponse>(responseJson);
+                
+                if (result != null && result.Ok && result.Data != null)
+                {
+                    _playTestNotesId = result.Data.Id;
+                    _shouldRecordPlayTestNotes = true;
+                    Log($"Started taking notes with ID: {_playTestNotesId}");
+                }
+                
+                return result;
+            }
+            catch (Exception ex)
+            {
+                LogError("Could not parse StartTakingNotes response.");
+                LogException(ex);
+                return null;
+            }
+        }
+        
+        public async Task<PlayTestNotesResponse> StopTakingNotesAsync()
+        {
+            string url = PlaysafeBaseURL + "/dev/notes/stop";
+
+            HttpContent content = null;
+            
+            if (!string.IsNullOrEmpty(_playTestNotesId))
+            {
+                var requestBody = new
+                {
+                    playTestNotesId = _playTestNotesId
+                };
+
+                string json = JsonConvert.SerializeObject(requestBody);
+                content = new StringContent(json, Encoding.UTF8, "application/json");
+            }
+
+            using var request = new HttpRequestMessage(HttpMethod.Patch, url);
+            request.Content = content;
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
+
+            HttpResponseMessage httpResponse;
+            try
+            {
+                httpResponse = await _httpClient.SendAsync(request).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                LogError($"StopTakingNotes network error: {ex.Message}");
+                LogException(ex);
+                return null;
+            }
+
+            string responseJson = await httpResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+            if (!httpResponse.IsSuccessStatusCode)
+            {
+                LogError($"StopTakingNotes HTTP {(int)httpResponse.StatusCode}: {httpResponse.ReasonPhrase}");
+                Log(responseJson);
+                return null;
+            }
+
+            try
+            {
+                Log("StopTakingNotes response: " + responseJson);
+                var result = JsonConvert.DeserializeObject<PlayTestNotesResponse>(responseJson);
+                
+                if (result != null && result.Ok)
+                {
+                    _playTestNotesId = null;
+                    _shouldRecordPlayTestNotes = false;
+                    Log("Stopped taking notes");
+                }
+                
+                return result;
+            }
+            catch (Exception ex)
+            {
+                LogError("Could not parse StopTakingNotes response.");
+                LogException(ex);
+                return null;
+            }
+        }
+
+        private async Task<PlayTestProductIsTakingNotesResponse> SyncProductIsTakingNotesAsync()
+        {
+            string url = PlaysafeBaseURL + PlayTestNotesTranscriptEndpoint + "/is-taking-notes";
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
+
+            HttpResponseMessage httpResponse;
+            try
+            {
+                httpResponse = await _httpClient.SendAsync(request).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                LogError($"GetProductIsTakingNotes network error: {ex.Message}");
+                LogException(ex);
+                return null;
+            }
+
+            string responseJson = await httpResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+            if (!httpResponse.IsSuccessStatusCode)
+            {
+                LogError($"GetProductIsTakingNotes HTTP {(int)httpResponse.StatusCode}: {httpResponse.ReasonPhrase}");
+                Log(responseJson);
+                return null;
+            }
+
+            try
+            {
+                Log("GetProductIsTakingNotes response: " + responseJson);
+                var result = JsonConvert.DeserializeObject<PlayTestProductIsTakingNotesResponse>(responseJson);
+                
+                if (result != null && result.Ok && result.Data != null)
+                {
+                    _shouldRecordPlayTestNotes = result.Data.IsTakingNotes;
+                    Log($"Product is taking notes: {result.Data.IsTakingNotes}");
+                }
+                
+                return result;
+            }
+            catch (Exception ex)
+            {
+                LogError("Could not parse GetProductIsTakingNotes response.");
+                LogException(ex);
+                return null;
+            }
+        }
+
+        IEnumerator SyncProductIsTakingNotesCoroutine()
+        {
+            Debug.Log("PlaySafeManager: Syncing product is taking notes");
+            var wait = new WaitForSecondsRealtime(_syncProductIsTakingNotesIntervalInSeconds);
+            
+            while (true)
+            {
+                yield return wait; // yields back to Unity; gameplay continues
+
+                var task = SyncProductIsTakingNotesAsync();
+
+                // Poll the task without blocking
+                while (!task.IsCompleted)
+                    yield return null; // yield each frame until it's done
+
+                if (task.IsFaulted)
+                    Debug.LogException(task.Exception);
+            }
+        }
+        
+        #endregion Playtest related
 
         #region Data Classes
 
