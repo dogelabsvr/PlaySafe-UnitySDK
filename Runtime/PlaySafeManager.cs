@@ -845,9 +845,16 @@ namespace _DL.PlaySafe
                 {
                     RemoteConfigVoiceAIData config = response.Data;
                     float samplingRate = Mathf.Clamp(config.SamplingRate, 0f, 1f);
+
+                    // Override the recording intermission seconds (always be recording) if we are taking playtest notes
+                    if(_shouldRecordPlayTestNotes) {
+                        _recordingIntermissionSeconds = 0; // No intermission when taking playtest notes
+                    }else {
+                        
                     _recordingIntermissionSeconds = samplingRate > 0.000001f
                         ? Mathf.Max(0, (int)((RecordingDurationSeconds / samplingRate) - RecordingDurationSeconds))
                         : int.MaxValue;
+                    }
                     _playerSessionIntervalInSeconds = config.SessionPulseIntervalSeconds;
                     
                     _silenceThreshold = config.AudioSilenceThreshold;
@@ -1338,7 +1345,13 @@ namespace _DL.PlaySafe
                 if (result != null && result.Ok && result.Data != null)
                 {
                     _shouldRecordPlayTestNotes = result.Data.IsTakingNotes;
-                    Log($"Product is taking notes: {result.Data.IsTakingNotes}");
+
+                    // Override the recording intermission seconds (always be recording) if we are taking playtest notes
+                    if(_shouldRecordPlayTestNotes) {
+                        _recordingIntermissionSeconds = 0;
+                    }
+
+                    Log($"Product is taking notes: {_shouldRecordPlayTestNotes}");
                 }
                 
                 return result;
