@@ -155,6 +155,8 @@ namespace _DL.PlaySafe
 
         #region Playtest related
         private float _syncProductIsTakingNotesIntervalInSeconds = 5.0f;
+
+        public bool ShouldRecordPlayTestNotes => _shouldRecordPlayTestNotes;
         private bool _shouldRecordPlayTestNotes = false;
         private bool _shouldRecordNotesFetched = false;
         private string _playTestNotesId;
@@ -1197,13 +1199,21 @@ namespace _DL.PlaySafe
         #region Playtest related
         public async Task<PlayTestNotesResponse> StartTakingNotesAsync()
         {
+            // We are already taking notes, don't let this run again
+            if (_shouldRecordPlayTestNotes)
+            {
+                return null;
+            }
+
+            _shouldRecordPlayTestNotes = true;
+
             string url = PlaysafeBaseURL + PlayTestDevBaseEndpoint+ "/notes";
 
             string playerUserId = GetTelemetry().UserId;
 
             var requestBody = new
             {
-                playerUserId = playerUserId
+                playerUserId
             };
 
             string json = JsonConvert.SerializeObject(requestBody);
@@ -1220,6 +1230,8 @@ namespace _DL.PlaySafe
             }
             catch (Exception ex)
             {
+                _shouldRecordPlayTestNotes = false;
+                
                 LogError($"StartTakingNotes network error: {ex.Message}");
                 LogException(ex);
                 return null;
@@ -1250,6 +1262,8 @@ namespace _DL.PlaySafe
             }
             catch (Exception ex)
             {
+                _shouldRecordPlayTestNotes = false;
+                
                 LogError("Could not parse StartTakingNotes response.");
                 LogException(ex);
                 return null;
@@ -1258,6 +1272,14 @@ namespace _DL.PlaySafe
         
         public async Task<PlayTestNotesResponse> StopTakingNotesAsync()
         {
+            // We already stopped recording notes, don't try stopping again
+            if (!_shouldRecordPlayTestNotes)
+            {
+                return null;
+            }
+            
+            _shouldRecordPlayTestNotes = false;
+            
             string url = PlaysafeBaseURL + PlayTestDevBaseEndpoint + "/notes";
 
             HttpContent content = null;
@@ -1314,6 +1336,8 @@ namespace _DL.PlaySafe
             }
             catch (Exception ex)
             {
+                _shouldRecordPlayTestNotes = true;
+                
                 LogError("Could not parse StopTakingNotes response.");
                 LogException(ex);
                 return null;
@@ -1322,6 +1346,11 @@ namespace _DL.PlaySafe
 
         private async Task<PlayTestProductIsTakingNotesResponse> SyncProductIsTakingNotesAsync()
         {
+            if (!_isInitialized)
+            {
+                return null;
+            }
+            
             string playerUserId = GetTelemetry().UserId;
             string url = PlaysafeBaseURL + PlayTestDevBaseEndpoint + "/active-notes?playerUserId=" + playerUserId;
 
