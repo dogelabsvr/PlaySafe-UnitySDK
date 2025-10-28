@@ -94,10 +94,8 @@ namespace _DL.PlaySafe
         [JsonProperty("reason")]
         public string Reason { get; set; }
     }
-
-
+    
     public class RemoteConfigVoiceAIResponse: PlaySafeApiResponse<RemoteConfigVoiceAIData>{}
-
 
     public class RemoteConfigVoiceAIData
     {

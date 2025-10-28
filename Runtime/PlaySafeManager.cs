@@ -31,7 +31,7 @@ namespace _DL.PlaySafe
         
         private const string PlaysafeBaseURL = "https://dl-voice-ai.dogelabs.workers.dev";
         private const string VoiceModerationEndpoint = "/products/moderation";
-        private const string PlayTestNotesTranscriptEndpoint = "/dev/notes";
+        private const string PlayTestDevBaseEndpoint = "/dev";
         private const string ReportEndpoint = "/products/moderation";
         
         #region Singleton & Initialization
@@ -154,8 +154,9 @@ namespace _DL.PlaySafe
         #endregion
 
         #region Playtest related
-        private float _syncProductIsTakingNotesIntervalInSeconds = 1.0f;
+        private float _syncProductIsTakingNotesIntervalInSeconds = 5.0f;
         private bool _shouldRecordPlayTestNotes = false;
+        private bool _shouldRecordNotesFetched = false;
         private string _playTestNotesId;
 
         #endregion 
@@ -188,7 +189,7 @@ namespace _DL.PlaySafe
 				bool shouldSendAudioForProcessing = _lastRecording.Elapsed.TotalSeconds > RecordingDurationSeconds;
 				StopRecording(shouldSendAudioForProcessing);
 			}
-            else if (ShouldRecord())
+            else if (ShouldRecord() && !_isRecording)
             {
                 StartRecording();
             }
@@ -265,12 +266,18 @@ namespace _DL.PlaySafe
         /// </summary>
         private bool ShouldRecord()
         {
+            // Don't start recording until we've fetched the notes status at least once
+            if (!_shouldRecordNotesFetched)
+                return false;
+                
             if (Application.isEditor && debugEnableRecord && !_isRecording)
                 return true;
-            else if(_shouldRecordPlayTestNotes)
-                return true;
 
-            return !_isRecording &&
+            // For continuous notes recording - start immediately when not recording
+            if (_shouldRecordPlayTestNotes && !_isRecording)
+                return CanRecord();
+
+            return (!_isRecording || _shouldRecordPlayTestNotes) &&
                    _lastRecording.Elapsed.TotalSeconds > _recordingIntermissionSeconds &&
                    CanRecord();
         }
@@ -308,7 +315,7 @@ namespace _DL.PlaySafe
             
             _isRecording = true;
             _lastRecording.Restart();
-            Log("PlaySafeManager: Recording started");
+            Log("PlaySafeManager: Recording started" + (_shouldRecordPlayTestNotes ? " (continuous notes recording)" : "") + (ShouldRecord() ? " (should record)" : " (should not record)") + (CanRecord() ? " (can record)" : " (cannot record)"));
         }
         
         private void CreateNewBuffer ()
@@ -372,7 +379,7 @@ namespace _DL.PlaySafe
             }
 
 			if(shouldSendAudioClip && _hasFocus) {
-                Log("PlaySafeManager: Sending audio for processing)");
+                Log("PlaySafeManager: Sending audio for processing");
             	StartCoroutine(SendAudioClipForAnalysisCoroutine(_audioClipRecording));
 			}
             else
@@ -381,7 +388,6 @@ namespace _DL.PlaySafe
             }
 
             _isRecording = false;
-            
         }
         
         public void _ToggleRecording()
@@ -535,7 +541,8 @@ namespace _DL.PlaySafe
 
                 Debug.Log("PlaySafeManager: Taking notes, sending audio for transcription");
 
-                yield return StartCoroutine(SendFormCoroutine(PlayTestNotesTranscriptEndpoint, form));
+                string url = PlayTestDevBaseEndpoint + "/notes/transcripts";
+                yield return StartCoroutine(SendFormCoroutine(url, form));
             }else { // Disable moderation when taking playtest notes
                 yield return StartCoroutine(SendFormCoroutine(VoiceModerationEndpoint, form));
             }
@@ -572,6 +579,11 @@ namespace _DL.PlaySafe
 
         private void ProcessModerationResponse(string jsonResponse)
         {
+            // No need to try processing moderation responses when taking playtest notes
+            if(_shouldRecordPlayTestNotes) {
+                return;
+            }
+
             try
             {
                 PlaySafeActionResponse response = JsonConvert.DeserializeObject<PlaySafeActionResponse>(jsonResponse);
@@ -848,10 +860,9 @@ namespace _DL.PlaySafe
 
                     // Override the recording intermission seconds (always be recording) if we are taking playtest notes
                     if(_shouldRecordPlayTestNotes) {
-                        _recordingIntermissionSeconds = 0; // No intermission when taking playtest notes
+                        _recordingIntermissionSeconds = 0; // Zero intermission for continuous recording when taking notes
                     }else {
-                        
-                    _recordingIntermissionSeconds = samplingRate > 0.000001f
+                        _recordingIntermissionSeconds = samplingRate > 0.000001f
                         ? Mathf.Max(0, (int)((RecordingDurationSeconds / samplingRate) - RecordingDurationSeconds))
                         : int.MaxValue;
                     }
@@ -1186,7 +1197,7 @@ namespace _DL.PlaySafe
         #region Playtest related
         public async Task<PlayTestNotesResponse> StartTakingNotesAsync()
         {
-            string url = PlaysafeBaseURL + "/dev/notes";
+            string url = PlaysafeBaseURL + PlayTestDevBaseEndpoint+ "/notes";
 
             string playerUserId = GetTelemetry().UserId;
 
@@ -1247,7 +1258,7 @@ namespace _DL.PlaySafe
         
         public async Task<PlayTestNotesResponse> StopTakingNotesAsync()
         {
-            string url = PlaysafeBaseURL + "/dev/notes/stop";
+            string url = PlaysafeBaseURL + PlayTestDevBaseEndpoint + "/notes";
 
             HttpContent content = null;
             
@@ -1311,9 +1322,11 @@ namespace _DL.PlaySafe
 
         private async Task<PlayTestProductIsTakingNotesResponse> SyncProductIsTakingNotesAsync()
         {
-            string url = PlaysafeBaseURL + PlayTestNotesTranscriptEndpoint + "/is-taking-notes";
+            string playerUserId = GetTelemetry().UserId;
+            string url = PlaysafeBaseURL + PlayTestDevBaseEndpoint + "/active-notes?playerUserId=" + playerUserId;
 
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
 
             HttpResponseMessage httpResponse;
@@ -1344,11 +1357,19 @@ namespace _DL.PlaySafe
                 
                 if (result != null && result.Ok && result.Data != null)
                 {
+                    bool previousState = _shouldRecordPlayTestNotes;
                     _shouldRecordPlayTestNotes = result.Data.IsTakingNotes;
+                    _shouldRecordNotesFetched = true;
 
                     // Override the recording intermission seconds (always be recording) if we are taking playtest notes
                     if(_shouldRecordPlayTestNotes) {
-                        _recordingIntermissionSeconds = 0;
+                        _recordingIntermissionSeconds = 0; // Zero intermission for continuous recording
+                        
+                        // If notes recording just became active, log the change
+                        if (!previousState && _shouldRecordPlayTestNotes)
+                        {
+                            Log("PlaySafeManager: Notes recording activated, continuous recording enabled");
+                        }
                     }
 
                     Log($"Product is taking notes: {_shouldRecordPlayTestNotes}");
@@ -1366,7 +1387,17 @@ namespace _DL.PlaySafe
 
         IEnumerator SyncProductIsTakingNotesCoroutine()
         {
-            Debug.Log("PlaySafeManager: Syncing product is taking notes");
+            Debug.Log("PlaySafeManager: Starting product notes sync");
+            
+            // Perform initial sync immediately
+            var initialTask = SyncProductIsTakingNotesAsync();
+            while (!initialTask.IsCompleted)
+                yield return null;
+            
+            if (initialTask.IsFaulted)
+                Debug.LogException(initialTask.Exception);
+            
+            // Then continue with periodic sync
             var wait = new WaitForSecondsRealtime(_syncProductIsTakingNotesIntervalInSeconds);
             
             while (true)
