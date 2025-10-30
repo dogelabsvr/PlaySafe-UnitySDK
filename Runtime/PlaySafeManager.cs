@@ -160,6 +160,7 @@ namespace _DL.PlaySafe
         private bool _shouldRecordPlayTestNotes = false;
         private bool _shouldRecordNotesFetched = false;
         private string _playTestNotesId;
+        private bool _hasPendingNotes = false;
 
         #endregion 
 
@@ -1278,9 +1279,19 @@ namespace _DL.PlaySafe
                 return null;
             }
             
-            _shouldRecordPlayTestNotes = false;
+            // Ensure at least 15 seconds pass (10 seconds + 5 second buffer) before stopping
+            double elapsed = _lastRecording.Elapsed.TotalSeconds;
+            double delayNeeded = Math.Max(15 - elapsed, 0);
             
-            string url = PlaysafeBaseURL + PlayTestDevBaseEndpoint + "/notes";
+            if (delayNeeded > 0)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(delayNeeded)).ConfigureAwait(false);
+            }
+            
+            _shouldRecordPlayTestNotes = false;
+
+            
+            string url = PlaysafeBaseURL + PlayTestDevBaseEndpoint + "/notes/stop";
 
             HttpContent content = null;
             
@@ -1295,7 +1306,7 @@ namespace _DL.PlaySafe
                 content = new StringContent(json, Encoding.UTF8, "application/json");
             }
 
-            using var request = new HttpRequestMessage(HttpMethod.Patch, url);
+            using var request = new HttpRequestMessage(HttpMethod.Post, url);
             request.Content = content;
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
 
