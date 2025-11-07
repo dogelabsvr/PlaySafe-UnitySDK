@@ -161,6 +161,8 @@ namespace _DL.PlaySafe
         private bool _shouldRecordNotesFetched = false;
         private string _playTestNotesId;
         private bool _hasPendingNotes = false;
+        private bool _hasCustomAuth = false;
+        private string _authToken = null;
 
         #endregion 
 
@@ -407,6 +409,25 @@ namespace _DL.PlaySafe
 
         #endregion
 
+        #region URL Helper
+        
+        /// <summary>
+        /// Adds the authentication token to the URL as a query parameter if custom auth is enabled.
+        /// </summary>
+        /// <param name="url">The URL to add the token to</param>
+        /// <returns>The URL with the token added if custom auth is enabled, otherwise the original URL</returns>
+        private string AddTokenToUrl(string url)
+        {
+            if (!_hasCustomAuth || string.IsNullOrEmpty(_authToken))
+                return url;
+            
+            // Check if the URL already has query parameters
+            string separator = url.Contains("?") ? "&" : "?";
+            return $"{url}{separator}token={_authToken}";
+        }
+        
+        #endregion
+
         #region Audio Processing
 
         /// <summary>
@@ -544,10 +565,10 @@ namespace _DL.PlaySafe
 
                 Debug.Log("PlaySafeManager: Taking notes, sending audio for transcription");
 
-                string url = PlayTestDevBaseEndpoint + "/notes/transcripts";
+                string url = AddTokenToUrl(PlayTestDevBaseEndpoint + "/notes/transcripts");
                 yield return StartCoroutine(SendFormCoroutine(url, form));
             }else { // Disable moderation when taking playtest notes
-                yield return StartCoroutine(SendFormCoroutine(VoiceModerationEndpoint, form));
+                yield return StartCoroutine(SendFormCoroutine(AddTokenToUrl(VoiceModerationEndpoint), form));
             }
             
         }
@@ -557,7 +578,7 @@ namespace _DL.PlaySafe
             yield return WaitForEndOfFrame;
             WWWForm form = SetupForm();
             form.AddField("text", text);
-            yield return StartCoroutine(SendFormCoroutine(VoiceModerationEndpoint, form));
+            yield return StartCoroutine(SendFormCoroutine(AddTokenToUrl(VoiceModerationEndpoint), form));
         }
 
         private IEnumerator SendFormCoroutine(string endpoint, WWWForm form)
@@ -628,7 +649,7 @@ namespace _DL.PlaySafe
 
             string json = JsonConvert.SerializeObject(reportRequest);
             byte[] jsonToSend = new System.Text.UTF8Encoding().GetBytes(json);
-            string url = PlaysafeBaseURL + ReportEndpoint + "/" + eventType;
+            string url = AddTokenToUrl(PlaysafeBaseURL + ReportEndpoint + "/" + eventType);
 
             UnityWebRequest www = new UnityWebRequest(url, "POST");
             www.uploadHandler = new UploadHandlerRaw(jsonToSend);
@@ -656,7 +677,7 @@ namespace _DL.PlaySafe
         [ItemCanBeNull]
         public async Task<ModerationEventResponse> ReportUserAsync(string targetUserId, string eventType)
         {
-            string url = $"{PlaysafeBaseURL}{ReportEndpoint}/{eventType}";
+            string url = AddTokenToUrl($"{PlaysafeBaseURL}{ReportEndpoint}/{eventType}");
 
             var reportRequest = new PlayerReportRequest
             {
@@ -713,7 +734,7 @@ namespace _DL.PlaySafe
         [ItemCanBeNull]
         public async Task<PlaySafeApiResponse> UnReportUserAsync(string targetUserId, string eventType)
         {
-            string url = $"{PlaysafeBaseURL}{ReportEndpoint}/{eventType}/undo";
+            string url = AddTokenToUrl($"{PlaysafeBaseURL}{ReportEndpoint}/{eventType}/undo");
 
             var reportRequest = new PlayerReportRequest
             {
@@ -799,7 +820,7 @@ namespace _DL.PlaySafe
         
         async Task SendSessionPulseAsync()
         {
-            string url = $"{PlaysafeBaseURL}/player/session/pulse";
+            string url = AddTokenToUrl($"{PlaysafeBaseURL}/player/session/pulse");
             string playerUserId = GetTelemetry().UserId;
             string playerUsername = GetTelemetry().UserName;
             
@@ -834,7 +855,8 @@ namespace _DL.PlaySafe
 
         private IEnumerator GetProductAIConfig()
         {
-            using (UnityWebRequest www = UnityWebRequest.Get(PlaysafeBaseURL + "/remote-config?playerUserId=" + GetTelemetry().UserId))
+            string url = AddTokenToUrl(PlaysafeBaseURL + "/remote-config?playerUserId=" + GetTelemetry().UserId);
+            using (UnityWebRequest www = UnityWebRequest.Get(url))
             {
                 www.SetRequestHeader("Authorization", "Bearer " + appKey);
                 yield return www.SendWebRequest();
@@ -891,7 +913,7 @@ namespace _DL.PlaySafe
         /// </summary>
         public async Task<ActiveSenseiPollResponse?> GetActivePollAsync(string personaId)
         {
-            string url = $"{PlaysafeBaseURL}/sensei/personas/{personaId}/polls/active/single";
+            string url = AddTokenToUrl($"{PlaysafeBaseURL}/sensei/personas/{personaId}/polls/active/single");
 
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
@@ -938,7 +960,7 @@ namespace _DL.PlaySafe
         /// <param name="response">The user's response/vote</param>
         public async Task<SenseiPollCastVoteResponse?> CastVoteAsync(string pollId, string response)
         {
-            string url = $"{PlaysafeBaseURL}/sensei/polls/{pollId}/votes";
+            string url = AddTokenToUrl($"{PlaysafeBaseURL}/sensei/polls/{pollId}/votes");
             string playerUserId = GetTelemetry().UserId;
             
             var requestBody = new
@@ -996,7 +1018,7 @@ namespace _DL.PlaySafe
         /// <param name="pollId">The ID of the poll to get results for</param>
         public async Task<SenseiPollVoteResultsResponse?> GetPollResultsAsync(string pollId)
         {
-            string url = $"{PlaysafeBaseURL}/sensei/polls/{pollId}/results";
+            string url = AddTokenToUrl($"{PlaysafeBaseURL}/sensei/polls/{pollId}/results");
 
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
@@ -1044,7 +1066,7 @@ namespace _DL.PlaySafe
         {
             string playerUserId = GetTelemetry().UserId;
 
-            string url = $"{PlaysafeBaseURL}/sensei/polls/{pollId}/votes/player?userId={playerUserId}";
+            string url = AddTokenToUrl($"{PlaysafeBaseURL}/sensei/polls/{pollId}/votes/player?userId={playerUserId}");
 
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
@@ -1096,7 +1118,7 @@ namespace _DL.PlaySafe
                 return null;
             }
 
-            string url = $"{PlaysafeBaseURL}/player/status?userId={playerUserId}";
+            string url = AddTokenToUrl($"{PlaysafeBaseURL}/player/status?userId={playerUserId}");
 
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
@@ -1142,7 +1164,7 @@ namespace _DL.PlaySafe
         /// </summary>
         public async Task<BanAppealResponse?> AppealBanAsync(string appealReason)
         {
-            string url = $"{PlaysafeBaseURL}/ban-appeals";
+            string url = AddTokenToUrl($"{PlaysafeBaseURL}/ban-appeals");
             string playerUsername = GetTelemetry().UserName;
             
             var requestBody = new 
@@ -1208,7 +1230,7 @@ namespace _DL.PlaySafe
 
             _shouldRecordPlayTestNotes = true;
 
-            string url = PlaysafeBaseURL + PlayTestDevBaseEndpoint+ "/notes";
+            string url = AddTokenToUrl(PlaysafeBaseURL + PlayTestDevBaseEndpoint + "/notes");
 
             string playerUserId = GetTelemetry().UserId;
 
@@ -1291,7 +1313,7 @@ namespace _DL.PlaySafe
             _shouldRecordPlayTestNotes = false;
 
             
-            string url = PlaysafeBaseURL + PlayTestDevBaseEndpoint + "/notes/stop";
+            string url = AddTokenToUrl(PlaysafeBaseURL + PlayTestDevBaseEndpoint + "/notes/stop");
 
             HttpContent content = null;
             
@@ -1363,7 +1385,7 @@ namespace _DL.PlaySafe
             }
             
             string playerUserId = GetTelemetry().UserId;
-            string url = PlaysafeBaseURL + PlayTestDevBaseEndpoint + "/active-notes?playerUserId=" + playerUserId;
+            string url = AddTokenToUrl(PlaysafeBaseURL + PlayTestDevBaseEndpoint + "/active-notes?playerUserId=" + playerUserId);
 
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             
@@ -1475,7 +1497,6 @@ namespace _DL.PlaySafe
 
         #endregion
         
-        
         public enum PlaySafeLogLevel
         {
             None    = 0,   // nothing
@@ -1522,6 +1543,12 @@ namespace _DL.PlaySafe
                 case PlaySafeLogLevel.Warning: Debug.LogWarning(msg); break;
                 default:                       Debug.Log(msg);        break;
             }
+        }
+
+        public void SetCustomAuth()
+        {
+            _hasCustomAuth = true;
+            _authToken = jwt;
         }
     }
 }
