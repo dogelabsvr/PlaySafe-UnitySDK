@@ -1545,10 +1545,65 @@ namespace _DL.PlaySafe
             }
         }
 
-        public void SetCustomAuth()
+        public async Task<PlayerAuthTokenResponse?> SetCustomAuth()
         {
-            _hasCustomAuth = true;
-            _authToken = jwt;
+            // Note: We don't use AddTokenToUrl here since we're getting the token in the first place
+            string url = $"{PlaysafeBaseURL}/auth-urls/player-auth-token";
+            string playerUserId = GetTelemetry().UserId;
+            
+            var requestBody = new
+            {
+                playerUserId
+            };
+
+            string json = JsonConvert.SerializeObject(requestBody);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, url);
+            request.Content = content;
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
+
+            HttpResponseMessage httpResponse;
+            try
+            {
+                httpResponse = await _httpClient.SendAsync(request).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                LogError($"SetCustomAuth network error: {ex.Message}");
+                LogException(ex);
+                return null;
+            }
+
+            string responseJson = await httpResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+            if (!httpResponse.IsSuccessStatusCode)
+            {
+                LogError($"SetCustomAuth HTTP {(int)httpResponse.StatusCode}: {httpResponse.ReasonPhrase}");
+                Log(responseJson);
+                return null;
+            }
+
+            try
+            {
+                Log("SetCustomAuth response: " + responseJson);
+                var result = JsonConvert.DeserializeObject<PlayerAuthTokenResponse>(responseJson);
+                
+                if (result != null && result.Ok && result.Data != null)
+                {
+                    _hasCustomAuth = true;
+                    _authToken = result.Data.Token;
+                    Log("Custom auth token retrieved successfully");
+                }
+                
+                return result;
+            }
+            catch (Exception ex)
+            {
+                LogError("Error! Failed to setup custom auth.");
+                LogException(ex);
+                return null;
+            }
         }
     }
 }
