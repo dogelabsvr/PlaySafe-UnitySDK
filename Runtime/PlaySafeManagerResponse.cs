@@ -279,4 +279,13 @@ namespace _DL.PlaySafe
         public bool IsTakingNotes { get; set; }
     }
     #endregion
+
+    #region Custom Auth
+    public class PlayerAuthTokenResponse : PlaySafeApiResponse<PlayerAuthTokenData> {}
+
+    public class PlayerAuthTokenData {
+        [JsonProperty("token")]
+        public string Token { get; set; }
+    }
+    #endregion
 }
