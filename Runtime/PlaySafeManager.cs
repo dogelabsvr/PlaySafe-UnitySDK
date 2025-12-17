@@ -793,6 +793,19 @@ namespace _DL.PlaySafe
                 _hasFocus = hasFocus;
             }
         }
+
+        private void OnApplicationPause(bool pauseStatus)
+        {
+            if (pauseStatus)
+            {
+                StopRecording();
+            }
+        }
+
+        private  void OnApplicationQuit()
+        {
+            StopRecording();
+        }
         
         #endregion
 
