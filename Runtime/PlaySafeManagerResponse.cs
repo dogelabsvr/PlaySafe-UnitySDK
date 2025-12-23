@@ -278,6 +278,14 @@ namespace _DL.PlaySafe
         [JsonProperty("isTakingNotes")]
         public bool IsTakingNotes { get; set; }
     }
+
+    public class PlayerIsDevResponse : PlaySafeApiResponse<PlayerIsDevData> {}
+
+    public class PlayerIsDevData
+    {
+        [JsonProperty("isDev")]
+        public bool IsDev { get; set; }
+    }
     #endregion
 
     #region Custom Auth
