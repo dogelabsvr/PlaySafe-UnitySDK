@@ -29,7 +29,8 @@ namespace _DL.PlaySafe
         [Header("Logging")]
         [SerializeField] private PlaySafeLogLevel logLevel = PlaySafeLogLevel.Info;
         
-        private const string PlaysafeBaseURL = "https://dl-voice-ai.dogelabs.workers.dev";
+        // private const string PlaysafeBaseURL = "https://dl-voice-ai.dogelabs.workers.dev";
+        private const string PlaysafeBaseURL = "http://localhost:8787";
         private const string VoiceModerationEndpoint = "/products/moderation";
         private const string PlayTestDevBaseEndpoint = "/dev";
         private const string ReportEndpoint = "/products/moderation";
@@ -39,6 +40,10 @@ namespace _DL.PlaySafe
         public static PlaySafeManager Instance;
 
         private bool _isInitialized = false;
+        private bool _isPlayerDev = false;
+        private bool _hasPlayerDevStatus = false;
+        private bool _isFetchingPlayerDevStatus = false;
+        private bool _isProductNotesSyncRunning = false;
 
         /// <summary>
         /// Must be set to a delegate that returns whether recording is permitted.
@@ -175,7 +180,7 @@ namespace _DL.PlaySafe
             #endif
             
             StartCoroutine(SendSessionPulseCoroutine());
-            StartCoroutine(SyncProductIsTakingNotesCoroutine());
+            StartCoroutine(GetIsPlayerDevCoroutine(startNotesSyncIfDev: true));
         }
 
         private void Update()
@@ -791,6 +796,12 @@ namespace _DL.PlaySafe
             if (!Application.isEditor)
             {
                 _hasFocus = hasFocus;
+            }
+
+            // When we regain focus, refresh dev status and start notes sync if applicable.
+            if (hasFocus)
+            {
+                StartCoroutine(GetIsPlayerDevCoroutine(startNotesSyncIfDev: true));
             }
         }
 
@@ -1460,10 +1471,137 @@ namespace _DL.PlaySafe
             }
         }
 
-        IEnumerator SyncProductIsTakingNotesCoroutine()
+        private async Task<PlayerIsDevResponse> GetIsPlayerDevAsync()
         {
-            Debug.Log("PlaySafeManager: Starting product notes sync");
+            // Default to non-dev unless the API tells us otherwise.
+            bool isDev = false;
+
+            if (GetTelemetry == null)
+            {
+                LogWarning("GetIsPlayerDevAsync: GetTelemetry is not set; assuming non-dev.");
+                _isPlayerDev = false;
+                return null;
+            }
+
+            string playerUserId = GetTelemetry().UserId;
+            if (string.IsNullOrEmpty(playerUserId))
+            {
+                LogWarning("GetIsPlayerDevAsync: No user ID found; assuming non-dev.");
+                _isPlayerDev = false;
+                return null;
+            }
+
+            if (string.IsNullOrEmpty(appKey))
+            {
+                LogWarning("GetIsPlayerDevAsync: appKey is not set; assuming non-dev.");
+                _isPlayerDev = false;
+                return null;
+            }
+
+            // Note: This endpoint returns { ok, data: { isDev }, message }.
+            // We include playerUserId for consistency with other /dev endpoints.
+            string url = AddTokenToUrl($"{PlaysafeBaseURL}{PlayTestDevBaseEndpoint}/player-is-dev?playerUserId={playerUserId}");
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
+
+            HttpResponseMessage httpResponse;
+            try
+            {
+                httpResponse = await _httpClient.SendAsync(request).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                LogError($"GetIsPlayerDev network error: {ex.Message}");
+                LogException(ex);
+                _isPlayerDev = false;
+                return null;
+            }
+
+            string responseJson = await httpResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+            if (!httpResponse.IsSuccessStatusCode)
+            {
+                LogError($"GetIsPlayerDev HTTP {(int)httpResponse.StatusCode}: {httpResponse.ReasonPhrase}");
+                Log(responseJson);
+                _isPlayerDev = false;
+                return null;
+            }
+
+            try
+            {
+                var result = JsonConvert.DeserializeObject<PlayerIsDevResponse>(responseJson);
+                if (result != null && result.Ok && result.Data != null)
+                {
+                    isDev = result.Data.IsDev;
+                }
+                else if (result != null && !result.Ok)
+                {
+                    LogWarning($"GetIsPlayerDev failed: {result.Message}");
+                }
+                else
+                {
+                    LogWarning("GetIsPlayerDev returned an unexpected response; assuming non-dev.");
+                }
+
+                _isPlayerDev = isDev;
+                Log($"Player is dev: {_isPlayerDev}");
+                return result;
+            }
+            catch (Exception ex)
+            {
+                LogError("Could not parse GetIsPlayerDev response.");
+                LogException(ex);
+                _isPlayerDev = false;
+                return null;
+            }
+        }
+
+        private IEnumerator GetIsPlayerDevCoroutine(bool startNotesSyncIfDev)
+        {
+            if (_isFetchingPlayerDevStatus)
+                yield break;
+
+            _isFetchingPlayerDevStatus = true;
+
+            var task = GetIsPlayerDevAsync();
+
+            while (!task.IsCompleted)
+                yield return null;
+
+            _isFetchingPlayerDevStatus = false;
+            _hasPlayerDevStatus = true;
+
+            if (task.IsFaulted)
+                Debug.LogException(task.Exception);
+
+            if (startNotesSyncIfDev && _isPlayerDev)
+            {
+                StartCoroutine(SyncProductIsTakingNotesCoroutine());
+            }
+        }
+
+        private IEnumerator SyncProductIsTakingNotesCoroutine()
+        {
+            if (_isProductNotesSyncRunning)
+                yield break;
             
+            _isProductNotesSyncRunning = true;
+
+            // Wait until we have fetched dev status at least once.
+            while (!_hasPlayerDevStatus)
+                yield return null;
+
+            // Non-devs should never perform notes syncing.
+            if (!_isPlayerDev)
+            {
+                Debug.Log("PlaySafeManager: Skipping product notes sync (non-dev)");
+                _isProductNotesSyncRunning = false;
+                yield break;
+            }
+
+            Debug.Log("PlaySafeManager: Starting product notes sync (dev)");
+
             // Perform initial sync immediately
             var initialTask = SyncProductIsTakingNotesAsync();
             while (!initialTask.IsCompleted)
