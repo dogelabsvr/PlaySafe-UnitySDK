@@ -185,25 +185,34 @@ namespace _DL.PlaySafe
         private void Update()
         {
             UpdateDebugInfo();
-
+            
             if (!_isInitialized)
+            {
+                Debug.Log("PlaySafeManager is not initialized");
                 return;
+            }
 
             if (!HasMicrophonePermission())
+            {
+                Debug.Log("PlaySafeManager no microphone permissions");
                 return;
+            }
 			
 			
 			if(_isRecording && (!CanRecord() && !Application.isEditor))
 			{ 
+                Debug.Log("Stop recording microphone");
 				bool shouldSendAudioForProcessing = _lastRecording.Elapsed.TotalSeconds > RecordingDurationSeconds;
 				StopRecording(shouldSendAudioForProcessing);
 			}
             else if (ShouldRecord() && !_isRecording)
             {
+                Debug.Log("Start recording microphone");
                 StartRecording();
             }
             else if (_isRecording && _lastRecording.Elapsed.TotalSeconds > RecordingDurationSeconds)
             {
+                
                 StopRecording();
             }
         }
@@ -276,8 +285,8 @@ namespace _DL.PlaySafe
         private bool ShouldRecord()
         {
             // Don't start recording until we've fetched the notes status at least once
-            if (!_shouldRecordNotesFetched)
-                return false;
+            // if (!_shouldRecordNotesFetched)
+            //     return false;
                 
             if (Application.isEditor && debugEnableRecord && !_isRecording)
                 return true;
@@ -285,9 +294,10 @@ namespace _DL.PlaySafe
             // For continuous notes recording - start immediately when not recording
             if (_shouldRecordPlayTestNotes && !_isRecording)
                 return CanRecord();
-
-            return (!_isRecording || _shouldRecordPlayTestNotes) &&
-                   _lastRecording.Elapsed.TotalSeconds > _recordingIntermissionSeconds &&
+            var totalSeconds = _lastRecording.Elapsed.TotalSeconds;
+            bool timeHasElapsed =   totalSeconds > _recordingIntermissionSeconds;
+            return (!_isRecording || _shouldRecordPlayTestNotes) &&timeHasElapsed
+                    &&
                    CanRecord();
         }
 
@@ -913,6 +923,8 @@ namespace _DL.PlaySafe
                         _recordingIntermissionSeconds = samplingRate > 0.000001f
                         ? Mathf.Max(0, (int)((RecordingDurationSeconds / samplingRate) - RecordingDurationSeconds))
                         : int.MaxValue;
+                        
+                        Debug.Log(response.Data);
                     }
                     _playerSessionIntervalInSeconds = config.SessionPulseIntervalSeconds;
                     
