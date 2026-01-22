@@ -11,7 +11,7 @@ public class PlaySafeDemoIntegration : MonoBehaviour
         Debug.Log("[invoked] PlaySafeDemoIntegration Start");
         playSafeManager.CanRecord = CanRecord;
         playSafeManager.GetTelemetry = GetTelemetry;
-        playSafeManager.OnActionEvent = OnActionEvent;
+        playSafeManager.OnPolicyViolationEvent = OnPolicyViolationEvent;
         playSafeManager.OnPlaySafeInitialized = OnPlaySafeInitialized;
         playSafeManager.Initialize();
 
@@ -39,7 +39,7 @@ public class PlaySafeDemoIntegration : MonoBehaviour
     }
     
     // When a user is banned / or timed out 
-    private void OnActionEvent(ActionItem actionEvent, DateTime serverTime)
+    private void OnPolicyViolationEvent(ActionItem actionEvent, DateTime serverTime)
     {
 
         string duration = actionEvent.DurationInMinutes >= 60 ? 
@@ -53,11 +53,11 @@ public class PlaySafeDemoIntegration : MonoBehaviour
         DateTime bannedUntil = serverTime + System.TimeSpan.FromMinutes(actionEvent.DurationInMinutes);
 
         // Log the ban information using Unity's Debug class
-        Debug.Log($"[OnActionEvent]Server time: {serverTime}");
-        Debug.Log($"[OnActionEvent] Player banned until: {bannedUntil}");
+        Debug.Log($"[OnPolicyViolationEvent]Server time: {serverTime}");
+        Debug.Log($"[OnPolicyViolationEvent] Player banned until: {bannedUntil}");
         
         // Additional detailed information for debugging
-        Debug.Log($"[OnActionEvent] Ban details - Action: {actionEvent.Action}, Reason: {actionEvent.Reason}, Duration: {actionEvent.DurationInMinutes} minutes");
+        Debug.Log($"[OnPolicyViolationEvent] Ban details - Action: {actionEvent.Action}, Reason: {actionEvent.Reason}, Duration: {actionEvent.DurationInMinutes} minutes");
         // TODO: Add implementation here
     }
     

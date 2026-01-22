@@ -17,15 +17,12 @@ using Debug = UnityEngine.Debug;
     using Photon.Voice;
     using Photon.Voice.Unity;
 #endif
-using System.Net.Http;
-using System.Net.Http.Headers;
 using JetBrains.Annotations;
 
 namespace _DL.PlaySafe
 {
     public class PlaySafeManager : MonoBehaviour
     {
-        private static readonly HttpClient _httpClient = new HttpClient();
         [Header("Logging")]
         [SerializeField] private PlaySafeLogLevel logLevel = PlaySafeLogLevel.Info;
         
@@ -57,7 +54,7 @@ namespace _DL.PlaySafe
         /// <summary>
         /// Called when an action is returned from voice moderation.
         /// </summary>
-        public Action<ActionItem, DateTime> OnActionEvent { private get; set; }
+        public Action<ActionItem, DateTime> OnPolicyViolationEvent { private get; set; }
 
         private float _playerSessionIntervalInSeconds = 60;
 
@@ -633,7 +630,7 @@ namespace _DL.PlaySafe
                     if (recommendation.HasViolation && recommendation.Actions.Count > 0)
                     {
 
-                        OnActionEvent?.Invoke(recommendation.Actions[0], serverTime);
+                        OnPolicyViolationEvent?.Invoke(recommendation.Actions[0], serverTime);
                     }
                 }
                 else
@@ -691,6 +688,13 @@ namespace _DL.PlaySafe
         [ItemCanBeNull]
         public async Task<ModerationEventResponse> ReportUserAsync(string targetUserId, string eventType)
         {
+            var tcs = new TaskCompletionSource<ModerationEventResponse>();
+            StartCoroutine(ReportUserCoroutine(targetUserId, eventType, tcs));
+            return await tcs.Task;
+        }
+
+        private IEnumerator ReportUserCoroutine(string targetUserId, string eventType, TaskCompletionSource<ModerationEventResponse> tcs)
+        {
             string url = AddTokenToUrl($"{PlaysafeBaseURL}{ReportEndpoint}/{eventType}");
 
             var reportRequest = new PlayerReportRequest
@@ -700,46 +704,40 @@ namespace _DL.PlaySafe
             };
 
             string json = JsonConvert.SerializeObject(reportRequest);
+            byte[] jsonToSend = new System.Text.UTF8Encoding().GetBytes(json);
 
-            using var content = new StringContent(json, Encoding.UTF8, "application/json");
-            using var request = new HttpRequestMessage(HttpMethod.Post, url);
-            request.Content = content;
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
+            UnityWebRequest www = new UnityWebRequest(url, "POST");
+            www.uploadHandler = new UploadHandlerRaw(jsonToSend);
+            www.downloadHandler = new DownloadHandlerBuffer();
+            www.SetRequestHeader("Content-Type", "application/json");
+            www.SetRequestHeader("Authorization", "Bearer " + appKey);
 
-            HttpResponseMessage httpResponse;
-            try
+            yield return www.SendWebRequest();
+
+            if (www.result != UnityWebRequest.Result.Success)
             {
-                httpResponse = await _httpClient.SendAsync(request).ConfigureAwait(false);
+                LogError("ReportUser error: " + www.error);
+                Log(www.downloadHandler.text);
+                tcs.SetResult(null);
             }
-            catch (Exception ex)
+            else
             {
-                LogError($"ReportUser network error: {ex.Message}");
-                LogException(ex);
-                return null;
+                try
+                {
+                    Log("PlaySafeManager: Report upload complete!");
+                    Log(www.downloadHandler.text);
+                    var result = JsonConvert.DeserializeObject<ModerationEventResponse>(www.downloadHandler.text);
+                    tcs.SetResult(result);
+                }
+                catch (Exception ex)
+                {
+                    LogError("Could not parse report user response.");
+                    LogException(ex);
+                    tcs.SetResult(null);
+                }
             }
 
-            string responseBody = await httpResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
-
-            if (!httpResponse.IsSuccessStatusCode)
-            {
-                LogError($"ReportUser HTTP {(int)httpResponse.StatusCode}: {httpResponse.ReasonPhrase}");
-                Log(responseBody);
-                return null;
-            }
-
-            try
-            {
-                Log("PlaySafeManager: Report upload complete!");
-                Log(responseBody);
-                var result = JsonConvert.DeserializeObject<ModerationEventResponse>(responseBody);
-                return result;
-            }
-            catch (Exception ex)
-            {
-                LogError("Could not parse report user response.");
-                LogException(ex);
-                return null;
-            }
+            www.Dispose();
         }
 
         /// <summary>
@@ -747,6 +745,13 @@ namespace _DL.PlaySafe
         /// </summary>
         [ItemCanBeNull]
         public async Task<PlaySafeApiResponse> UnReportUserAsync(string targetUserId, string eventType)
+        {
+            var tcs = new TaskCompletionSource<PlaySafeApiResponse>();
+            StartCoroutine(UnReportUserCoroutine(targetUserId, eventType, tcs));
+            return await tcs.Task;
+        }
+
+        private IEnumerator UnReportUserCoroutine(string targetUserId, string eventType, TaskCompletionSource<PlaySafeApiResponse> tcs)
         {
             string url = AddTokenToUrl($"{PlaysafeBaseURL}{ReportEndpoint}/{eventType}/undo");
 
@@ -757,46 +762,40 @@ namespace _DL.PlaySafe
             };
 
             string json = JsonConvert.SerializeObject(reportRequest);
+            byte[] jsonToSend = new System.Text.UTF8Encoding().GetBytes(json);
 
-            using var content = new StringContent(json, Encoding.UTF8, "application/json");
-            using var request = new HttpRequestMessage(HttpMethod.Post, url);
-            request.Content = content;
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
+            UnityWebRequest www = new UnityWebRequest(url, "POST");
+            www.uploadHandler = new UploadHandlerRaw(jsonToSend);
+            www.downloadHandler = new DownloadHandlerBuffer();
+            www.SetRequestHeader("Content-Type", "application/json");
+            www.SetRequestHeader("Authorization", "Bearer " + appKey);
 
-            HttpResponseMessage httpResponse;
-            try
+            yield return www.SendWebRequest();
+
+            if (www.result != UnityWebRequest.Result.Success)
             {
-                httpResponse = await _httpClient.SendAsync(request).ConfigureAwait(false);
+                LogError("UnReportUser error: " + www.error);
+                Log(www.downloadHandler.text);
+                tcs.SetResult(null);
             }
-            catch (Exception ex)
+            else
             {
-                LogError($"ReportUser network error: {ex.Message}");
-                LogException(ex);
-                return null;
+                try
+                {
+                    Log("PlaySafeManager: UnReport upload complete!");
+                    Log(www.downloadHandler.text);
+                    var result = JsonConvert.DeserializeObject<PlaySafeApiResponse>(www.downloadHandler.text);
+                    tcs.SetResult(result);
+                }
+                catch (Exception ex)
+                {
+                    LogError("Could not parse unreport user response.");
+                    LogException(ex);
+                    tcs.SetResult(null);
+                }
             }
 
-            string responseBody = await httpResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
-
-            if (!httpResponse.IsSuccessStatusCode)
-            {
-                LogError($"ReportUser HTTP {(int)httpResponse.StatusCode}: {httpResponse.ReasonPhrase}");
-                Log(responseBody);
-                return null;
-            }
-
-            try
-            {
-                Log("PlaySafeManager: Report upload complete!");
-                Log(responseBody);
-                var result = JsonConvert.DeserializeObject<PlaySafeApiResponse>(responseBody);
-                return result;
-            }
-            catch (Exception ex)
-            {
-                LogError("Could not parse report user response.");
-                LogException(ex);
-                return null;
-            }
+            www.Dispose();
         }
 
         private bool _hasFocus = true;
@@ -816,15 +815,15 @@ namespace _DL.PlaySafe
 
         private void OnApplicationPause(bool pauseStatus)
         {
-            if (pauseStatus)
-            {
-                StopRecording();
-            }
+            // if (pauseStatus)
+            // {
+            //     StopRecording();
+            // }
         }
 
         private  void OnApplicationQuit()
         {
-            StopRecording();
+            // StopRecording();
         }
         
         #endregion
@@ -850,40 +849,178 @@ namespace _DL.PlaySafe
             }
         }
 
-        
+
         async Task SendSessionPulseAsync()
+        {
+            var tcs = new TaskCompletionSource<bool>();
+            StartCoroutine(SendSessionPulseCoroutineInternal(tcs));
+            await tcs.Task;
+        }
+
+        private IEnumerator SendSessionPulseCoroutineInternal(TaskCompletionSource<bool> tcs)
         {
             string url = AddTokenToUrl($"{PlaysafeBaseURL}/player/session/pulse");
             string playerUserId = GetTelemetry().UserId;
             string playerUsername = GetTelemetry().UserName;
-            
+
             var requestBody = new
             {
-                playerUserId,   
+                playerUserId,
                 playerUsername = string.IsNullOrEmpty(playerUsername) ? null : playerUsername
             };
             string json = JsonConvert.SerializeObject(requestBody);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            byte[] jsonToSend = new System.Text.UTF8Encoding().GetBytes(json);
 
-            using var request = new HttpRequestMessage(HttpMethod.Post, url);
-            request.Content = content;
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
+            UnityWebRequest www = new UnityWebRequest(url, "POST");
+            www.uploadHandler = new UploadHandlerRaw(jsonToSend);
+            www.downloadHandler = new DownloadHandlerBuffer();
+            www.SetRequestHeader("Content-Type", "application/json");
+            www.SetRequestHeader("Authorization", "Bearer " + appKey);
 
-            HttpResponseMessage httpResponse;
-            try
+            Debug.Log($"[SendSessionPulse] Sending session pulse");
+            yield return www.SendWebRequest();
+
+            if (www.result != UnityWebRequest.Result.Success)
             {
-                Debug.Log($"[SendSessionPulse] Sending session pulse");
-                httpResponse = await _httpClient.SendAsync(request).ConfigureAwait(false);
+                LogError($"SendSessionPulse network error: {www.error}");
             }
-            catch (Exception ex)
-            {
-                LogError($"SendSessionPulse network error: {ex.Message}");
-                LogException(ex);
-                return;
-            }
+
+            www.Dispose();
+            tcs.SetResult(true);
         }
         #endregion
         
+        #region Web API Helper Methods
+
+        public class ApiRequestOptions
+        {
+            public string Method { get; set; } = "GET";
+            public object RequestBody { get; set; } = null;
+            public string SuccessMessage { get; set; } = null;
+        }
+
+        public class PlaySafeApiResponse<T>
+        {
+            public bool Success { get; set; }
+            public T Data { get; set; }
+            public string ErrorMessage { get; set; }
+            public string RawResponse { get; set; }
+        }
+
+        /// <summary>
+        /// Unified API request method that handles both GET and POST requests using UnityWebRequest
+        /// </summary>
+        /// <typeparam name="T">The expected response type</typeparam>
+        /// <param name="url">The API endpoint URL</param>
+        /// <param name="options">Request options including method, body, and success message</param>
+        /// <returns>A PlaySafeApiResponse containing the result</returns>
+        public async Task<PlaySafeApiResponse<T>> SendApiRequest<T>(string url, ApiRequestOptions options = null)
+        {
+            if (options == null) options = new ApiRequestOptions();
+
+            var tcs = new TaskCompletionSource<PlaySafeApiResponse<T>>();
+            StartCoroutine(SendApiRequestCoroutine(url, options, tcs, typeof(T)));
+            return await tcs.Task;
+        }
+
+        private IEnumerator SendApiRequestCoroutine<T>(string url, ApiRequestOptions options, TaskCompletionSource<PlaySafeApiResponse<T>> tcs, System.Type responseType)
+        {
+            yield return StartCoroutine(SendApiRequestCoroutineWithoutTokenUrl(AddTokenToUrl(url), options, tcs, responseType));
+        }
+
+        private IEnumerator SendApiRequestCoroutineWithoutTokenUrl<T>(string url, ApiRequestOptions options, TaskCompletionSource<PlaySafeApiResponse<T>> tcs, System.Type responseType)
+        {
+            UnityWebRequest www = null;
+
+            try
+            {
+                // Create request based on method
+                if (options.Method.ToUpper() == "GET")
+                {
+                    www = UnityWebRequest.Get(url);
+                }
+                else if (options.Method.ToUpper() == "POST")
+                {
+                    www = new UnityWebRequest(url, "POST");
+                    www.downloadHandler = new DownloadHandlerBuffer();
+
+                    if (options.RequestBody != null)
+                    {
+                        string json = JsonConvert.SerializeObject(options.RequestBody);
+                        byte[] jsonToSend = new System.Text.UTF8Encoding().GetBytes(json);
+                        www.uploadHandler = new UploadHandlerRaw(jsonToSend);
+                        www.SetRequestHeader("Content-Type", "application/json");
+                    }
+                }
+                else
+                {
+                    tcs.SetResult(new PlaySafeApiResponse<T>
+                    {
+                        Success = false,
+                        ErrorMessage = $"Unsupported HTTP method: {options.Method}",
+                        Data = default(T)
+                    });
+                    yield break;
+                }
+
+                // Set authorization header
+                www.SetRequestHeader("Authorization", "Bearer " + appKey);
+
+                // Send request
+                yield return www.SendWebRequest();
+
+                // Handle response
+                var response = new PlaySafeApiResponse<T>
+                {
+                    RawResponse = www.downloadHandler.text,
+                    Success = www.result == UnityWebRequest.Result.Success
+                };
+
+                if (!response.Success)
+                {
+                    response.ErrorMessage = www.error;
+                    LogError($"{options.Method} request error: {www.error}");
+                    Log(www.downloadHandler.text);
+                }
+                else
+                {
+                    try
+                    {
+                        if (!string.IsNullOrEmpty(options.SuccessMessage))
+                        {
+                            Log(options.SuccessMessage);
+                        }
+                        Log(www.downloadHandler.text);
+
+                        // Parse response if we have a specific type
+                        if (responseType != typeof(object) && responseType != typeof(string) && !string.IsNullOrEmpty(www.downloadHandler.text))
+                        {
+                            response.Data = JsonConvert.DeserializeObject<T>(www.downloadHandler.text);
+                        }
+                        else if (responseType == typeof(string))
+                        {
+                            response.Data = (T)(object)www.downloadHandler.text;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        response.Success = false;
+                        response.ErrorMessage = "Could not parse response.";
+                        LogError("Could not parse response.");
+                        LogException(ex);
+                    }
+                }
+
+                tcs.SetResult(response);
+            }
+            finally
+            {
+                www?.Dispose();
+            }
+        }
+
+        #endregion
+
         #region Web API Calls
 
         private IEnumerator GetProductAIConfig()
@@ -948,44 +1085,15 @@ namespace _DL.PlaySafe
         /// </summary>
         public async Task<ActiveSenseiPollResponse?> GetActivePollAsync(string personaId)
         {
-            string url = AddTokenToUrl($"{PlaysafeBaseURL}/sensei/personas/{personaId}/polls/active/single");
+            string url = $"{PlaysafeBaseURL}/sensei/personas/{personaId}/polls/active/single";
 
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
+            var response = await SendApiRequest<ActiveSenseiPollResponse>(url, new ApiRequestOptions
+            {
+                Method = "GET",
+                SuccessMessage = "Active poll retrieved successfully"
+            });
 
-            HttpResponseMessage httpResponse;
-            try
-            {
-                httpResponse = await _httpClient.SendAsync(request).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                LogError($"GetActivePoll network error: {ex.Message}");
-                LogException(ex);
-                return null;
-            }
-
-            string json = await httpResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
-
-            if (!httpResponse.IsSuccessStatusCode)
-            {
-                LogError($"GetActivePoll HTTP {(int)httpResponse.StatusCode}: {httpResponse.ReasonPhrase}");
-                Log(json);
-                return null;
-            }
-
-            try
-            {
-                var result = JsonConvert.DeserializeObject<ActiveSenseiPollResponse>(json);
-                Log("Active poll retrieved successfully");
-                return result;
-            }
-            catch (Exception ex)
-            {
-                LogError("Could not parse active poll response.");
-                LogException(ex);
-                return null;
-            }
+            return response.Success ? response.Data : null;
         }
 
         /// <summary>
@@ -995,56 +1103,23 @@ namespace _DL.PlaySafe
         /// <param name="response">The user's response/vote</param>
         public async Task<SenseiPollCastVoteResponse?> CastVoteAsync(string pollId, string response)
         {
-            string url = AddTokenToUrl($"{PlaysafeBaseURL}/sensei/polls/{pollId}/votes");
+            string url = $"{PlaysafeBaseURL}/sensei/polls/{pollId}/votes";
             string playerUserId = GetTelemetry().UserId;
-            
+
             var requestBody = new
             {
                 userId = playerUserId,
                 response = response
             };
 
-            string json = JsonConvert.SerializeObject(requestBody);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-            using var request = new HttpRequestMessage(HttpMethod.Post, url);
-            request.Content = content;
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
-
-            HttpResponseMessage httpResponse;
-            try
+            var apiResponse = await SendApiRequest<SenseiPollCastVoteResponse>(url, new ApiRequestOptions
             {
-                httpResponse = await _httpClient.SendAsync(request).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                LogError($"CastVote network error: {ex.Message}");
-                LogException(ex);
-                return null;
-            }
+                Method = "POST",
+                RequestBody = requestBody,
+                SuccessMessage = "Vote cast successfully"
+            });
 
-            string responseJson = await httpResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
-
-            if (!httpResponse.IsSuccessStatusCode)
-            {
-                LogError($"CastVote HTTP {(int)httpResponse.StatusCode}: {httpResponse.ReasonPhrase}");
-                Log(responseJson);
-                return null;
-            }
-
-            try
-            {
-                Log("CastVote response: " + responseJson);
-                var result = JsonConvert.DeserializeObject<SenseiPollCastVoteResponse>(responseJson);
-                Log("Vote cast successfully");
-                return result;
-            }
-            catch (Exception ex)
-            {
-                LogError("Could not parse cast vote response.");
-                LogException(ex);
-                return null;
-            }
+            return apiResponse.Success ? apiResponse.Data : null;
         }
 
         /// <summary>
@@ -1053,44 +1128,15 @@ namespace _DL.PlaySafe
         /// <param name="pollId">The ID of the poll to get results for</param>
         public async Task<SenseiPollVoteResultsResponse?> GetPollResultsAsync(string pollId)
         {
-            string url = AddTokenToUrl($"{PlaysafeBaseURL}/sensei/polls/{pollId}/results");
+            string url = $"{PlaysafeBaseURL}/sensei/polls/{pollId}/results";
 
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
+            var response = await SendApiRequest<SenseiPollVoteResultsResponse>(url, new ApiRequestOptions
+            {
+                Method = "GET",
+                SuccessMessage = "Poll results retrieved successfully"
+            });
 
-            HttpResponseMessage response;
-            try
-            {
-                response = await _httpClient.SendAsync(request).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                LogError($"GetPollResults network error: {ex.Message}");
-                LogException(ex);
-                return null;
-            }
-
-            string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                LogError($"GetPollResults HTTP {(int)response.StatusCode}: {response.ReasonPhrase}");
-                Log(json);
-                return null;
-            }
-
-            try
-            {
-                var result = JsonConvert.DeserializeObject<SenseiPollVoteResultsResponse>(json);
-                Log("Poll results retrieved successfully");
-                return result;
-            }
-            catch (Exception ex)
-            {
-                LogError("Could not parse poll results response.");
-                LogException(ex);
-                return null;
-            }
+            return response.Success ? response.Data : null;
         }
        
         /// <summary>
@@ -1100,45 +1146,15 @@ namespace _DL.PlaySafe
         public async Task<SenseiPlayerPollVotesResponse?> GetPlayerPollVotesAsync(string pollId)
         {
             string playerUserId = GetTelemetry().UserId;
+            string url = $"{PlaysafeBaseURL}/sensei/polls/{pollId}/votes/player?userId={playerUserId}";
 
-            string url = AddTokenToUrl($"{PlaysafeBaseURL}/sensei/polls/{pollId}/votes/player?userId={playerUserId}");
-
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
-
-            HttpResponseMessage response;
-            try
+            var response = await SendApiRequest<SenseiPlayerPollVotesResponse>(url, new ApiRequestOptions
             {
-                response = await _httpClient.SendAsync(request).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                LogError($"GetPlayerPollVotes network error: {ex.Message}");
-                LogException(ex);
-                return null;
-            }
+                Method = "GET",
+                SuccessMessage = "Player poll votes retrieved successfully"
+            });
 
-            string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                LogError($"GetPlayerPollVotes HTTP {(int)response.StatusCode}: {response.ReasonPhrase}");
-                Log(json);
-                return null;
-            }
-
-            try
-            {
-                var result = JsonConvert.DeserializeObject<SenseiPlayerPollVotesResponse>(json);
-                Log("Player poll votes retrieved successfully");
-                return result;
-            }
-            catch (Exception ex)
-            {
-                LogError("Could not parse player poll votes response.");
-                LogException(ex);
-                return null;
-            }
+            return response.Success ? response.Data : null;
         }
                       
         /// <summary>
@@ -1153,103 +1169,39 @@ namespace _DL.PlaySafe
                 return null;
             }
 
-            string url = AddTokenToUrl($"{PlaysafeBaseURL}/player/status?userId={playerUserId}");
+            string url = $"{PlaysafeBaseURL}/player/status?userId={playerUserId}";
 
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
+            var response = await SendApiRequest<PlayerStatusResponse>(url, new ApiRequestOptions
+            {
+                Method = "GET",
+                SuccessMessage = "Player status retrieved successfully"
+            });
 
-            HttpResponseMessage response;
-            try
-            {
-                response = await _httpClient.SendAsync(request).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                LogError($"GetPlayerStatus network error: {ex.Message}");
-                LogException(ex);
-                return null;
-            }
-
-            string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                LogError($"GetPlayerStatus HTTP {(int)response.StatusCode}: {response.ReasonPhrase}");
-                Log(json);
-                return null;
-            }
-
-            try
-            {
-                var result = JsonConvert.DeserializeObject<PlayerStatusResponse>(json);
-                Log("Player status retrieved successfully");
-                // Optionally inspect result for violations etc. here
-                return result;
-            }
-            catch (Exception ex)
-            {
-                LogError("Could not parse player status response.");
-                LogException(ex);
-                return null;
-            }
+            return response.Success ? response.Data : null;
         }
 
          /// <summary>
-        /// Gets the current status of a player including any active violations.
+        /// Appeals a player ban.
         /// </summary>
         public async Task<BanAppealResponse?> AppealBanAsync(string appealReason)
         {
-            string url = AddTokenToUrl($"{PlaysafeBaseURL}/ban-appeals");
+            string url = $"{PlaysafeBaseURL}/ban-appeals";
             string playerUsername = GetTelemetry().UserName;
-            
-            var requestBody = new 
+
+            var requestBody = new
             {
                 playerUsername,
                 appealReason = !string.IsNullOrEmpty(appealReason) ? appealReason : null
             };
-            
 
-            string json = JsonConvert.SerializeObject(requestBody);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-            using var request = new HttpRequestMessage(HttpMethod.Post, url);
-            request.Content = content;
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
-
-            HttpResponseMessage httpResponse;
-            try
+            var response = await SendApiRequest<BanAppealResponse>(url, new ApiRequestOptions
             {
-                httpResponse = await _httpClient.SendAsync(request).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                LogError($"AppealBan network error: {ex.Message}");
-                LogException(ex);
-                return null;
-            }
+                Method = "POST",
+                RequestBody = requestBody,
+                SuccessMessage = "Ban appeal successful"
+            });
 
-            string responseJson = await httpResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
-
-            if (!httpResponse.IsSuccessStatusCode)
-            {
-                LogError($"AppealBan HTTP {(int)httpResponse.StatusCode}: {httpResponse.ReasonPhrase}");
-                Log(responseJson);
-                return null;
-            }
-
-            try
-            {
-                Log("AppealBan response: " + responseJson);
-                var result = JsonConvert.DeserializeObject<BanAppealResponse>(responseJson);
-                Log("Ban appeal successful");
-                return result;
-            }
-            catch (Exception ex)
-            {
-                LogError("Could not parse ban appeal response.");
-                LogException(ex);
-                return null;
-            }
+            return response.Success ? response.Data : null;
         }
 
         #endregion
@@ -1265,8 +1217,7 @@ namespace _DL.PlaySafe
 
             _shouldRecordPlayTestNotes = true;
 
-            string url = AddTokenToUrl(PlaysafeBaseURL + PlayTestDevBaseEndpoint + "/notes");
-
+            string url = PlaysafeBaseURL + PlayTestDevBaseEndpoint + "/notes";
             string playerUserId = GetTelemetry().UserId;
 
             var requestBody = new
@@ -1274,56 +1225,24 @@ namespace _DL.PlaySafe
                 playerUserId
             };
 
-            string json = JsonConvert.SerializeObject(requestBody);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-            using var request = new HttpRequestMessage(HttpMethod.Post, url);
-            request.Content = content;
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
-
-            HttpResponseMessage httpResponse;
-            try
+            var response = await SendApiRequest<PlayTestNotesResponse>(url, new ApiRequestOptions
             {
-                httpResponse = await _httpClient.SendAsync(request).ConfigureAwait(false);
+                Method = "POST",
+                RequestBody = requestBody,
+                SuccessMessage = "StartTakingNotes completed"
+            });
+
+            if (response.Success && response.Data != null && response.Data.Ok && response.Data.Data != null)
+            {
+                _playTestNotesId = response.Data.Data.Id;
+                _shouldRecordPlayTestNotes = true;
+                Log($"Started taking notes with ID: {_playTestNotesId}");
+                return response.Data;
             }
-            catch (Exception ex)
+            else
             {
                 _shouldRecordPlayTestNotes = false;
-                
-                LogError($"StartTakingNotes network error: {ex.Message}");
-                LogException(ex);
-                return null;
-            }
-
-            string responseJson = await httpResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
-
-            if (!httpResponse.IsSuccessStatusCode)
-            {
-                LogError($"StartTakingNotes HTTP {(int)httpResponse.StatusCode}: {httpResponse.ReasonPhrase}");
-                Log(responseJson);
-                return null;
-            }
-
-            try
-            {
-                Log("StartTakingNotes response: " + responseJson);
-                var result = JsonConvert.DeserializeObject<PlayTestNotesResponse>(responseJson);
-                
-                if (result != null && result.Ok && result.Data != null)
-                {
-                    _playTestNotesId = result.Data.Id;
-                    _shouldRecordPlayTestNotes = true;
-                    Log($"Started taking notes with ID: {_playTestNotesId}");
-                }
-                
-                return result;
-            }
-            catch (Exception ex)
-            {
-                _shouldRecordPlayTestNotes = false;
-                
-                LogError("Could not parse StartTakingNotes response.");
-                LogException(ex);
+                LogError("Failed to start taking notes");
                 return null;
             }
         }
@@ -1347,67 +1266,35 @@ namespace _DL.PlaySafe
             
             _shouldRecordPlayTestNotes = false;
 
-            
-            string url = AddTokenToUrl(PlaysafeBaseURL + PlayTestDevBaseEndpoint + "/notes/stop");
+            string url = PlaysafeBaseURL + PlayTestDevBaseEndpoint + "/notes/stop";
+            object requestBody = null;
 
-            HttpContent content = null;
-            
             if (!string.IsNullOrEmpty(_playTestNotesId))
             {
-                var requestBody = new
+                requestBody = new
                 {
                     playTestNotesId = _playTestNotesId
                 };
-
-                string json = JsonConvert.SerializeObject(requestBody);
-                content = new StringContent(json, Encoding.UTF8, "application/json");
             }
 
-            using var request = new HttpRequestMessage(HttpMethod.Post, url);
-            request.Content = content;
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
-
-            HttpResponseMessage httpResponse;
-            try
+            var response = await SendApiRequest<PlayTestNotesResponse>(url, new ApiRequestOptions
             {
-                httpResponse = await _httpClient.SendAsync(request).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                LogError($"StopTakingNotes network error: {ex.Message}");
-                LogException(ex);
-                return null;
-            }
+                Method = "POST",
+                RequestBody = requestBody,
+                SuccessMessage = "StopTakingNotes completed"
+            });
 
-            string responseJson = await httpResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
-
-            if (!httpResponse.IsSuccessStatusCode)
+            if (response.Success && response.Data != null && response.Data.Ok)
             {
-                LogError($"StopTakingNotes HTTP {(int)httpResponse.StatusCode}: {httpResponse.ReasonPhrase}");
-                Log(responseJson);
-                return null;
+                _playTestNotesId = null;
+                _shouldRecordPlayTestNotes = false;
+                Log("Stopped taking notes");
+                return response.Data;
             }
-
-            try
-            {
-                Log("StopTakingNotes response: " + responseJson);
-                var result = JsonConvert.DeserializeObject<PlayTestNotesResponse>(responseJson);
-                
-                if (result != null && result.Ok)
-                {
-                    _playTestNotesId = null;
-                    _shouldRecordPlayTestNotes = false;
-                    Log("Stopped taking notes");
-                }
-                
-                return result;
-            }
-            catch (Exception ex)
+            else
             {
                 _shouldRecordPlayTestNotes = true;
-                
-                LogError("Could not parse StopTakingNotes response.");
-                LogException(ex);
+                LogError("Failed to stop taking notes");
                 return null;
             }
         }
@@ -1420,37 +1307,17 @@ namespace _DL.PlaySafe
             }
             
             string playerUserId = GetTelemetry().UserId;
-            string url = AddTokenToUrl(PlaysafeBaseURL + PlayTestDevBaseEndpoint + "/active-notes?playerUserId=" + playerUserId);
+            string url = PlaysafeBaseURL + PlayTestDevBaseEndpoint + "/active-notes?playerUserId=" + playerUserId;
 
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
-
-            HttpResponseMessage httpResponse;
-            try
+            var response = await SendApiRequest<PlayTestProductIsTakingNotesResponse>(url, new ApiRequestOptions
             {
-                httpResponse = await _httpClient.SendAsync(request).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                LogError($"GetProductIsTakingNotes network error: {ex.Message}");
-                LogException(ex);
-                return null;
-            }
+                Method = "GET",
+                SuccessMessage = "GetProductIsTakingNotes completed"
+            });
 
-            string responseJson = await httpResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
-
-            if (!httpResponse.IsSuccessStatusCode)
+            if (response.Success)
             {
-                LogError($"GetProductIsTakingNotes HTTP {(int)httpResponse.StatusCode}: {httpResponse.ReasonPhrase}");
-                Log(responseJson);
-                return null;
-            }
-
-            try
-            {
-                Log("GetProductIsTakingNotes response: " + responseJson);
-                var result = JsonConvert.DeserializeObject<PlayTestProductIsTakingNotesResponse>(responseJson);
+                var result = response.Data;
                 
                 if (result != null && result.Ok && result.Data != null)
                 {
@@ -1474,10 +1341,9 @@ namespace _DL.PlaySafe
                 
                 return result;
             }
-            catch (Exception ex)
+            else
             {
-                LogError("Could not parse GetProductIsTakingNotes response.");
-                LogException(ex);
+                LogError("Failed to get product taking notes status");
                 return null;
             }
         }
@@ -1511,37 +1377,16 @@ namespace _DL.PlaySafe
 
             // Note: This endpoint returns { ok, data: { isDev }, message }.
             // We include playerUserId for consistency with other /dev endpoints.
-            string url = AddTokenToUrl($"{PlaysafeBaseURL}{PlayTestDevBaseEndpoint}/player-is-dev?playerUserId={playerUserId}");
+            string url = $"{PlaysafeBaseURL}{PlayTestDevBaseEndpoint}/player-is-dev?playerUserId={playerUserId}";
 
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
-
-            HttpResponseMessage httpResponse;
-            try
+            var response = await SendApiRequest<PlayerIsDevResponse>(url, new ApiRequestOptions
             {
-                httpResponse = await _httpClient.SendAsync(request).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                LogError($"GetIsPlayerDev network error: {ex.Message}");
-                LogException(ex);
-                _isPlayerDev = false;
-                return null;
-            }
+                Method = "GET"
+            });
 
-            string responseJson = await httpResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
-
-            if (!httpResponse.IsSuccessStatusCode)
+            if (response.Success)
             {
-                LogError($"GetIsPlayerDev HTTP {(int)httpResponse.StatusCode}: {httpResponse.ReasonPhrase}");
-                Log(responseJson);
-                _isPlayerDev = false;
-                return null;
-            }
-
-            try
-            {
-                var result = JsonConvert.DeserializeObject<PlayerIsDevResponse>(responseJson);
+                var result = response.Data;
                 if (result != null && result.Ok && result.Data != null)
                 {
                     isDev = result.Data.IsDev;
@@ -1559,10 +1404,9 @@ namespace _DL.PlaySafe
                 Log($"Player is dev: {_isPlayerDev}");
                 return result;
             }
-            catch (Exception ex)
+            else
             {
-                LogError("Could not parse GetIsPlayerDev response.");
-                LogException(ex);
+                LogError("Failed to get player dev status");
                 _isPlayerDev = false;
                 return null;
             }
@@ -1710,60 +1554,42 @@ namespace _DL.PlaySafe
         public async Task<PlayerAuthTokenResponse?> SetCustomAuth()
         {
             // Note: We don't use AddTokenToUrl here since we're getting the token in the first place
+            // Note: We don't use AddTokenToUrl here since we're getting the token in the first place
             string url = $"{PlaysafeBaseURL}/auth-urls/player-auth-token";
             string playerUserId = GetTelemetry().UserId;
-            
+
             var requestBody = new
             {
                 playerUserId
             };
 
-            string json = JsonConvert.SerializeObject(requestBody);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-            using var request = new HttpRequestMessage(HttpMethod.Post, url);
-            request.Content = content;
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", appKey);
-
-            HttpResponseMessage httpResponse;
-            try
+            // Special case: don't add token to URL since we're getting the token
+            var tcs = new TaskCompletionSource<PlaySafeApiResponse<PlayerAuthTokenResponse>>();
+            var options = new ApiRequestOptions
             {
-                httpResponse = await _httpClient.SendAsync(request).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                LogError($"SetCustomAuth network error: {ex.Message}");
-                LogException(ex);
-                return null;
-            }
+                Method = "POST",
+                RequestBody = requestBody,
+                SuccessMessage = "SetCustomAuth completed"
+            };
+            StartCoroutine(SendApiRequestCoroutineWithoutTokenUrl(url, options, tcs, typeof(PlayerAuthTokenResponse)));
+            var response = await tcs.Task;
 
-            string responseJson = await httpResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
-
-            if (!httpResponse.IsSuccessStatusCode)
+            if (response.Success && response.Data != null)
             {
-                LogError($"SetCustomAuth HTTP {(int)httpResponse.StatusCode}: {httpResponse.ReasonPhrase}");
-                Log(responseJson);
-                return null;
-            }
+                var result = response.Data;
 
-            try
-            {
-                Log("SetCustomAuth response: " + responseJson);
-                var result = JsonConvert.DeserializeObject<PlayerAuthTokenResponse>(responseJson);
-                
-                if (result != null && result.Ok && result.Data != null)
+                if (result.Ok && result.Data != null)
                 {
                     _hasCustomAuth = true;
                     _authToken = result.Data.Token;
                     Log("Custom auth token retrieved successfully");
                 }
-                
+
                 return result;
             }
-            catch (Exception ex)
+            else
             {
                 LogError("Error! Failed to setup custom auth.");
-                LogException(ex);
                 return null;
             }
         }

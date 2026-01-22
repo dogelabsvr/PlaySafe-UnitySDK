@@ -16,7 +16,7 @@
 //     {
 //         playSafeManager.CanRecord = CanRecord;
 //         playSafeManager.GetTelemetry = GetTelemetry;
-//         playSafeManager.OnActionEvent = OnActionEvent;
+//         playSafeManager.OnPolicyViolationEvent = OnPolicyViolationEvent;
 //         playSafeManager.OnPlaySafeInitialized = OnPlaySafeInitialized;
         
 //         playSafeManager.Initialize();
@@ -45,7 +45,7 @@
 //     }
     
 //     // When a user is banned / or timed out 
-//     private void OnActionEvent(ActionItem actionEvent, DateTime serverTime)
+//     private void OnPolicyViolationEvent(ActionItem actionEvent, DateTime serverTime)
 //     {
 //         string duration = actionEvent.DurationInMinutes >= 60 ? 
 //             $"{(actionEvent.DurationInMinutes / 60f).ToString("F1")} hours" :
