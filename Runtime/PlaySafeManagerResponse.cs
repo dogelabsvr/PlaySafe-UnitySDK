@@ -66,17 +66,44 @@ namespace _DL.PlaySafe
 
     public class ActionLog
     {
+        [JsonProperty("id")]
+        public string Id { get; set; }
+
+        [JsonProperty("actionFriendlyName")]
+        public string ActionFriendlyName { get; set; }
+
+        [JsonProperty("triggersStrike")]
+        public bool TriggersStrike { get; set; }
+
         [JsonProperty("actionValue")]
         public string ActionValue { get; set; }
-        
-        [JsonProperty("endDate")]
-        public DateTime EndDate { get; set; }
-        
+
+        [JsonProperty("trigger")]
+        public string Trigger { get; set; }
+
+        [JsonProperty("description")]
+        public string Description { get; set; }
+
+        [JsonProperty("transcript")]
+        public string Transcript { get; set; }
+
         [JsonProperty("isActive")]
         public bool IsActive { get; set; }
-        
+
         [JsonProperty("durationInMinutes")]
         public int DurationInMinutes { get; set; }
+
+        [JsonProperty("delayInSeconds")]
+        public int DelayInSeconds { get; set; }
+
+        [JsonProperty("endDate")]
+        public DateTime EndDate { get; set; }
+
+        [JsonProperty("createdAt")]
+        public DateTime CreatedAt { get; set; }
+
+        [JsonProperty("updatedAt")]
+        public DateTime UpdatedAt { get; set; }
     }
     //#endregion
 
