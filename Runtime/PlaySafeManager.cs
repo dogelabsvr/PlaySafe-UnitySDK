@@ -143,14 +143,23 @@ namespace _DL.PlaySafe
         private Stopwatch _lastRecording = new Stopwatch();
         private const int RecordingDurationSeconds = 10;
         private int _recordingIntermissionSeconds = 60;  // May be updated from remote config
-        
+
         #if PHOTON_VOICE_DEFINED
         private PhotonPlaySafeProcessor _photonPlaySafeProcessor;
         #endif
-        
+
         public float[] audioBufferFromExistingMic;
 
         private int _sampleIndex = 0;
+
+        // Pause/Resume recording fields
+        private bool _isPaused = false;
+        private bool _previousCanRecordState = false;
+        private Stopwatch _activeRecordingTime = new Stopwatch();
+        private Stopwatch _pauseTimer = new Stopwatch();
+        private const int PauseTimeoutSeconds = 10;
+        private const int MinimumAudioDurationSeconds = 1;
+        private const int UnityMicSampleRate = 16000;
 
         #endregion
 
@@ -182,7 +191,7 @@ namespace _DL.PlaySafe
         private void Update()
         {
             UpdateDebugInfo();
-            
+
             if (!_isInitialized)
             {
                 Debug.Log("PlaySafeManager is not initialized");
@@ -194,24 +203,56 @@ namespace _DL.PlaySafe
                 Debug.Log("PlaySafeManager no microphone permissions");
                 return;
             }
-			
-			
-			if(_isRecording && (!CanRecord() && !Application.isEditor))
-			{ 
-                Debug.Log("Stop recording microphone");
-				bool shouldSendAudioForProcessing = _lastRecording.Elapsed.TotalSeconds > RecordingDurationSeconds;
-				StopRecording(shouldSendAudioForProcessing);
-			}
-            else if (ShouldRecord() && !_isRecording)
+
+            // Track CanRecord state for transition detection
+            bool currentCanRecord = CanRecord();
+
+            // State transitions: Recording -> Paused (when CanRecord becomes false)
+            if (_isRecording && !_isPaused && !currentCanRecord && !Application.isEditor)
             {
-                Debug.Log("Start recording microphone");
+                Log($"[StateMachine] RECORDING -> PAUSED (CanRecord became false, accumulated: {GetAccumulatedAudioDuration():F1}s)");
+                PauseRecording();
+            }
+            // State transitions: Paused -> Recording (when CanRecord becomes true)
+            else if (_isRecording && _isPaused && currentCanRecord)
+            {
+                Log($"[StateMachine] PAUSED -> RECORDING (CanRecord became true, total pause time: {_pauseTimer.Elapsed.TotalSeconds:F1}s)");
+                ResumeRecording();
+            }
+
+            // Check total pause time: if cumulative pause time exceeds threshold, stop and send what we have
+            // This prevents exploit where user rapidly toggles mute to avoid accumulating 10s of audio
+            // Checked regardless of current state (recording/paused) - if total pause time hits threshold, send immediately
+            if (_isRecording && _pauseTimer.Elapsed.TotalSeconds >= PauseTimeoutSeconds)
+            {
+                bool hasMinimumAudio = GetAccumulatedAudioDuration() >= MinimumAudioDurationSeconds;
+                if (hasMinimumAudio)
+                {
+                    Log($"[StateMachine] -> SEND (total pause time {_pauseTimer.Elapsed.TotalSeconds:F1}s >= {PauseTimeoutSeconds}s threshold, sending {GetAccumulatedAudioDuration():F1}s of audio)");
+                }
+                else
+                {
+                    Log($"[StateMachine] -> DISCARD (total pause time {_pauseTimer.Elapsed.TotalSeconds:F1}s >= {PauseTimeoutSeconds}s threshold, discarding {GetAccumulatedAudioDuration():F1}s of audio - below {MinimumAudioDurationSeconds}s minimum)");
+                }
+                StopRecording(hasMinimumAudio);
+            }
+
+            // Check if accumulated audio reached target duration (applies to both Recording and Paused states)
+            if (_isRecording && GetAccumulatedAudioDuration() >= RecordingDurationSeconds)
+            {
+                string currentState = _isPaused ? "PAUSED" : "RECORDING";
+                Log($"[StateMachine] {currentState} -> SEND (target duration {RecordingDurationSeconds}s reached)");
+                StopRecording(true);
+            }
+
+            // Start new recording if conditions are met
+            if (ShouldRecord() && !_isRecording)
+            {
+                Log("[StateMachine] IDLE -> RECORDING (ShouldRecord() returned true)");
                 StartRecording();
             }
-            else if (_isRecording && _lastRecording.Elapsed.TotalSeconds > RecordingDurationSeconds)
-            {
-                
-                StopRecording();
-            }
+
+            _previousCanRecordState = currentCanRecord;
         }
 
         #endregion
@@ -320,18 +361,86 @@ namespace _DL.PlaySafe
 
             if (!isUsingExistingUnityMic)
             {
+                // For Unity Microphone path: set sample rate and create buffer
+                sampleRate = UnityMicSampleRate;
+                channelCount = 1;
+
                 string mic = GetDefaultMicrophone();
                 _audioClipRecording =
-                    Microphone.Start(mic, false, RecordingDurationSeconds, 16000); // 10 seconds at 16 kHz
+                    Microphone.Start(mic, false, RecordingDurationSeconds, sampleRate);
             }
-            else
-            {
-                CreateNewBuffer();
-            }
-            
+
+            // Create buffer for both paths (Unity Mic and Photon use the same buffer)
+            CreateNewBuffer();
+
             _isRecording = true;
+            _isPaused = false;
             _lastRecording.Restart();
-            Log("PlaySafeManager: Recording started" + (_shouldRecordPlayTestNotes ? " (continuous notes recording)" : "") + (ShouldRecord() ? " (should record)" : " (should not record)") + (CanRecord() ? " (can record)" : " (cannot record)"));
+            _activeRecordingTime.Restart();
+            _pauseTimer.Reset();
+
+            Log($"[StateMachine] Recording started - mode: {(isUsingExistingUnityMic ? "Photon" : "UnityMic")}, sampleRate: {sampleRate}, channels: {channelCount}" +
+                (_shouldRecordPlayTestNotes ? ", playtest notes: ON" : ""));
+        }
+
+        private void PauseRecording()
+        {
+            if (!_isRecording || _isPaused)
+                return;
+
+            _isPaused = true;
+            _activeRecordingTime.Stop();
+            _pauseTimer.Start(); // Continue accumulating total pause time (not reset)
+
+            if (!isUsingExistingUnityMic)
+            {
+                // For Unity Microphone: extract recorded samples to buffer, then stop microphone
+                string mic = GetDefaultMicrophone();
+                int currentPosition = Microphone.GetPosition(mic);
+
+                if (currentPosition > 0 && _audioClipRecording != null)
+                {
+                    // Extract samples from the AudioClip
+                    float[] samples = new float[currentPosition];
+                    _audioClipRecording.GetData(samples, 0);
+
+                    // Copy to buffer if there's room
+                    int samplesToCopy = Mathf.Min(samples.Length, audioBufferFromExistingMic.Length - _sampleIndex);
+                    if (samplesToCopy > 0)
+                    {
+                        System.Array.Copy(samples, 0, audioBufferFromExistingMic, _sampleIndex, samplesToCopy);
+                        _sampleIndex += samplesToCopy;
+                    }
+
+                    Log($"[StateMachine] PauseRecording: extracted {samplesToCopy} samples from Unity Microphone");
+                }
+
+                Microphone.End(mic);
+            }
+            // For Photon path: AppendToBuffer will check _isPaused and skip appending
+
+            Log($"[StateMachine] Recording PAUSED - accumulated audio: {GetAccumulatedAudioDuration():F1}s, samples in buffer: {_sampleIndex}");
+        }
+
+        private void ResumeRecording()
+        {
+            if (!_isRecording || !_isPaused)
+                return;
+
+            _isPaused = false;
+            _pauseTimer.Stop(); // Stop but preserve total pause time (for cumulative tracking)
+            _activeRecordingTime.Start();
+
+            if (!isUsingExistingUnityMic)
+            {
+                // For Unity Microphone: start fresh recording (will continue accumulating to same buffer)
+                string mic = GetDefaultMicrophone();
+                _audioClipRecording = Microphone.Start(mic, false, RecordingDurationSeconds, sampleRate);
+                Log("[StateMachine] ResumeRecording: Unity Microphone restarted");
+            }
+            // For Photon path: AppendToBuffer will resume appending since _isPaused is now false
+
+            Log($"[StateMachine] Recording RESUMED - continuing from {GetAccumulatedAudioDuration():F1}s, samples in buffer: {_sampleIndex}");
         }
         
         private void CreateNewBuffer ()
@@ -342,8 +451,10 @@ namespace _DL.PlaySafe
         
         public void AppendToBuffer(float[] newData)
         {
+            // Guard: only append when actively recording (not paused, not stopped)
+            if (!_isRecording || _isPaused) return;
             if (audioBufferFromExistingMic == null) return;
-            
+
             int newDataLength = newData.Length;
             if (newDataLength > 0 && _sampleIndex + newDataLength < audioBufferFromExistingMic.Length)
             {
@@ -356,54 +467,74 @@ namespace _DL.PlaySafe
         {
             if (channelCount < 1) return null;
             if (audioBufferFromExistingMic == null) return null;
-            if (audioBufferFromExistingMic.Length == 0) return null;
-            
-            AudioClip clip = AudioClip.Create("RecordedAudio", audioBufferFromExistingMic.Length / channelCount, 
+            if (_sampleIndex == 0) return null;
+
+            // Create a trimmed buffer with only the recorded samples
+            float[] trimmedBuffer = new float[_sampleIndex];
+            System.Array.Copy(audioBufferFromExistingMic, 0, trimmedBuffer, 0, _sampleIndex);
+
+            AudioClip clip = AudioClip.Create("RecordedAudio", _sampleIndex / channelCount,
                 channelCount, sampleRate, false);
-            clip.SetData(audioBufferFromExistingMic, 0);
-            LogWarning("PlaySafeManager Audioclip length: " + clip.length + ", sample rate: " + sampleRate + ", channels: " + channelCount);
+            clip.SetData(trimmedBuffer, 0);
+            LogWarning($"PlaySafeManager: AudioClip created - length: {clip.length}s, samples: {_sampleIndex}, sample rate: {sampleRate}, channels: {channelCount}");
             return clip;
         }
 
+        /// <summary>
+        /// Returns the accumulated audio duration in seconds.
+        /// Uses the active recording time stopwatch which only runs while actively recording (not paused).
+        /// </summary>
+        private double GetAccumulatedAudioDuration()
+        {
+            return _activeRecordingTime.Elapsed.TotalSeconds;
+        }
 
         private void StopRecording(bool shouldSendAudioClip = true)
         {
             if (!_isRecording)
                 return;
 
-            if (isUsingExistingUnityMic)
+            // For Unity Microphone path: extract any remaining samples if not paused
+            if (!isUsingExistingUnityMic && !_isPaused)
             {
-                _audioClipRecording = CreateAudioClip();
-                
-                // debug echo loopback
-                /* 
-                AudioSource audioSource = GetComponent<AudioSource>();
-                if (audioSource == null)
+                string mic = GetDefaultMicrophone();
+                int currentPosition = Microphone.GetPosition(mic);
+
+                if (currentPosition > 0 && _audioClipRecording != null)
                 {
-                    audioSource = gameObject.AddComponent<AudioSource>();
+                    float[] samples = new float[currentPosition];
+                    _audioClipRecording.GetData(samples, 0);
+
+                    int samplesToCopy = Mathf.Min(samples.Length, audioBufferFromExistingMic.Length - _sampleIndex);
+                    if (samplesToCopy > 0)
+                    {
+                        System.Array.Copy(samples, 0, audioBufferFromExistingMic, _sampleIndex, samplesToCopy);
+                        _sampleIndex += samplesToCopy;
+                    }
                 }
 
-                audioSource.clip = _audioClipRecording;
-                audioSource.volume = 1f;
-                audioSource.spatialBlend = 0f;
-                audioSource.Play();
-                */
+                Microphone.End(mic);
+            }
+
+            // Create AudioClip from buffer (same for both Unity Mic and Photon paths)
+            _audioClipRecording = CreateAudioClip();
+
+            if (shouldSendAudioClip && _hasFocus)
+            {
+                Log($"[StateMachine] StopRecording: SENDING {GetAccumulatedAudioDuration():F1}s of audio ({_sampleIndex} samples) for processing");
+                StartCoroutine(SendAudioClipForAnalysisCoroutine(_audioClipRecording));
             }
             else
             {
-                Microphone.End(null);
+                LogWarning($"[StateMachine] StopRecording: DISCARDED - shouldSendAudioClip={shouldSendAudioClip}, hasFocus={_hasFocus}, audio={GetAccumulatedAudioDuration():F1}s");
             }
 
-			if(shouldSendAudioClip && _hasFocus) {
-                Log("PlaySafeManager: Sending audio for processing");
-            	StartCoroutine(SendAudioClipForAnalysisCoroutine(_audioClipRecording));
-			}
-            else
-            {
-                LogWarning($"PlaySafeManager: Recording cancelled – shouldSendAudioClip = {shouldSendAudioClip}, Game Has Focus = {_hasFocus}. This can happen if you mute your mic during recording");
-            }
-
+            // Reset all recording state
             _isRecording = false;
+            _isPaused = false;
+            _activeRecordingTime.Reset();
+            _pauseTimer.Reset();
+            Log("[StateMachine] Recording STOPPED - state reset to IDLE");
         }
         
         public void _ToggleRecording()
