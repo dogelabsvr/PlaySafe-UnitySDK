@@ -563,6 +563,10 @@ namespace _DL.PlaySafe
             }
             yield return WaitForEndOfFrame;
             WWWForm form = SetupForm();
+
+            int audioDurationInSeconds = (int) Math.Max(1,clip.length);  
+            form.AddField("durationInSeconds", audioDurationInSeconds);
+            
             form.AddBinaryData("audio", wavFileBytes, "audio.wav", "audio/wav");
             yield return WaitForEndOfFrame;
 
