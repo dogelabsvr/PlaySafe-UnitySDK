@@ -157,7 +157,7 @@ namespace _DL.PlaySafe
         private bool _previousCanRecordState = false;
         private Stopwatch _activeRecordingTime = new Stopwatch();
         private Stopwatch _pauseTimer = new Stopwatch();
-        private const int PauseTimeoutSeconds = 10;
+        private const int PauseTimeoutSeconds = 30;
         private const int MinimumAudioDurationSeconds = 1;
         private const int UnityMicSampleRate = 16000;
 
