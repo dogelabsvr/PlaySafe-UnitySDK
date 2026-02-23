@@ -78,6 +78,9 @@ namespace _DL.PlaySafe
         [JsonProperty("actionValue")]
         public string ActionValue { get; set; }
 
+        [JsonProperty("violationType")]
+        public string ViolationType { get; set; }
+
         [JsonProperty("trigger")]
         public string Trigger { get; set; }
 
