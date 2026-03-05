@@ -394,10 +394,14 @@ namespace _DL.PlaySafe
                 Microphone.End(null);
             }
 
-			if(shouldSendAudioClip && _hasFocus) {
+			if(shouldSendAudioClip && _hasFocus && _audioClipRecording != null) {
                 Log("PlaySafeManager: Sending audio for processing");
             	StartCoroutine(SendAudioClipForAnalysisCoroutine(_audioClipRecording));
 			}
+            else if (_audioClipRecording == null)
+            {
+                LogWarning("PlaySafeManager: AudioClip is null, skipping analysis");
+            }
             else
             {
                 LogWarning($"PlaySafeManager: Recording cancelled – shouldSendAudioClip = {shouldSendAudioClip}, Game Has Focus = {_hasFocus}. This can happen if you mute your mic during recording");
