@@ -121,6 +121,9 @@ namespace _DL.PlaySafe
         [JsonProperty("actionEndDate")]
         public DateTime ActionEndDate { get; set; }
 
+        [JsonProperty("violationType")]
+        public string ViolationType { get; set; }
+
         [JsonProperty("reason")]
         public string Reason { get; set; }
     }
