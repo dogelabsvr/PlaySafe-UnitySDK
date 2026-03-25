@@ -1337,7 +1337,9 @@ namespace _DL.PlaySafe
             var requestBody = new
             {
                 playerUsername,
-                appealReason = !string.IsNullOrEmpty(appealReason) ? appealReason : null
+                appealReason = !string.IsNullOrEmpty(appealReason) ? appealReason : null,
+                source = ModerationSource.UNITY_SDK,
+                platform = ModerationPlatform.IN_GAME
             };
 
             var response = await SendApiRequest<BanAppealResponse>(url, new ApiRequestOptions
