@@ -4,8 +4,7 @@ using Newtonsoft.Json;
 using System.Collections.Generic;
 
 namespace _DL.PlaySafe  
-{
-
+{ 
     public class PlaySafeApiResponse : PlaySafeApiResponse<object> {}
     
     public class PlaySafeApiResponse<T>
@@ -329,4 +328,20 @@ namespace _DL.PlaySafe
         public string Token { get; set; }
     }
     #endregion
+
+    #region Moderation Platform and Source
+    public class ModerationPlatform
+    {
+        public static readonly ModerationPlatform IN_GAME   = new("in-game");
+        public string Value { get; }
+        private ModerationPlatform(string value) => Value = value;
+    }
+
+    public class ModerationSource
+    {
+        public static readonly ModerationSource UNITY_SDK   = new("unity-sdk");
+        public string Value { get; }
+        private ModerationSource(string value) => Value = value;
+    }
+    #endregion 
 }
