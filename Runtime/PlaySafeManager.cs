@@ -1352,6 +1352,112 @@ namespace _DL.PlaySafe
             return response.Success ? response.Data : null;
         }
 
+        /// <summary>
+        /// Gets the list of available product actions that can be taken against players.
+        /// This method is only available to dev players.
+        /// </summary>
+        public async Task<ProductActionsResponse> GetProductActionsAsync()
+        {
+            if (!_isPlayerDev)
+            {
+                LogWarning("GetProductActionsAsync: Only dev players can get product actions.");
+                return null;
+            }
+
+            string url = $"{PlaysafeBaseURL}/product-actions";
+
+            var response = await SendApiRequest<ProductActionsResponse>(url, new ApiRequestOptions
+            {
+                Method = "GET",
+                SuccessMessage = "Product actions retrieved successfully"
+            });
+
+            return response.Success ? response.Data : null;
+        }
+
+        /// <summary>
+        /// Manually applies a moderation action on a player.
+        /// Use <see cref="GetProductActionsAsync"/> to retrieve available actions first.
+        /// This method is only available to dev players.
+        /// </summary>
+        /// <param name="playerUserId">The target player's user ID (required)</param>
+        /// <param name="productActionId">The product action ID to apply (required)</param>
+        /// <param name="durationInMinutes">Duration of the action in minutes (required)</param>
+        /// <param name="playerUsername">The target player's username (required)</param>
+        /// <param name="numberOfStrikes">Number of strikes to apply (optional, default 1)</param>
+        /// <param name="description">Description of why the action is being taken (optional)</param>
+        public async Task<ManualActionResponse> TakeManualActionOnPlayerAsync(
+            string playerUserId,
+            string productActionId,
+            int durationInMinutes,
+            string playerUsername,
+            int numberOfStrikes = 1,
+            string description = null)
+        {
+            if (!_isPlayerDev)
+            {
+                LogWarning("TakeManualActionOnPlayerAsync: Only dev players can manually action players.");
+                return null;
+            }
+
+            string url = $"{PlaysafeBaseURL}{VoiceModerationEndpoint}/manual-action/player";
+
+            var requestBody = new
+            {
+                playerUserId,
+                playerUsername,
+                productActionId,
+                durationInMinutes,
+                numberOfStrikes,
+                description,
+                source = ModerationSource.UNITY_SDK,
+                platform = ModerationPlatform.IN_GAME
+            };
+
+            var response = await SendApiRequest<ManualActionResponse>(url, new ApiRequestOptions
+            {
+                Method = "POST",
+                RequestBody = requestBody,
+                SuccessMessage = "Manual action applied successfully"
+            });
+
+            return response.Success ? response.Data : null;
+        }
+
+        /// <summary>
+        /// Forgives a player, clearing their active action log and optionally resetting their strikes.
+        /// This method is only available to dev players.
+        /// </summary>
+        /// <param name="playerUserId">The target player's user ID (required)</param>
+        /// <param name="shouldResetStrikes">Whether to reset the player's strike count (optional, default false)</param>
+        public async Task<ForgivePlayerResponse> ForgivePlayerAsync(
+            string playerUserId,
+            bool shouldResetStrikes = false)
+        {
+            if (!_isPlayerDev)
+            {
+                LogWarning("ForgivePlayerAsync: Only dev players can forgive players.");
+                return null;
+            }
+
+            string url = $"{PlaysafeBaseURL}{VoiceModerationEndpoint}/forgive";
+
+            var requestBody = new
+            {
+                playerUserId,
+                shouldResetStrikes
+            };
+
+            var response = await SendApiRequest<ForgivePlayerResponse>(url, new ApiRequestOptions
+            {
+                Method = "POST",
+                RequestBody = requestBody,
+                SuccessMessage = "Player forgiven successfully"
+            });
+
+            return response.Success ? response.Data : null;
+        }
+
         #endregion
 
         #region Playtest related

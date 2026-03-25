@@ -246,6 +246,42 @@ namespace _DL.PlaySafe
     public class BanAppealResponse: PlaySafeApiResponse<bool> {}
     //#endregion
 
+    //#region Product Actions
+    public class ProductActionData
+    {
+        [JsonProperty("id")]
+        public string Id { get; set; }
+
+        [JsonProperty("name")]
+        public string Name { get; set; }
+
+        [JsonProperty("description")]
+        public string Description { get; set; }
+
+        [JsonProperty("value")]
+        public string Value { get; set; }
+
+        [JsonProperty("isPermanent")]
+        public bool IsPermanent { get; set; }
+
+        [JsonProperty("createdAt")]
+        public DateTime CreatedAt { get; set; }
+
+        [JsonProperty("updatedAt")]
+        public DateTime UpdatedAt { get; set; }
+    }
+
+    public class ProductActionsResponse : PlaySafeApiResponse<List<ProductActionData>> {}
+    //#endregion
+
+    //#region Manual Action
+    public class ManualActionResponse : PlaySafeApiResponse<ActionLog> {}
+    //#endregion
+
+    //#region Forgive Player
+    public class ForgivePlayerResponse : PlaySafeApiResponse<object> {}
+    //#endregion
+
     //#region Moderation events
     public class ModerationEvent
     {
