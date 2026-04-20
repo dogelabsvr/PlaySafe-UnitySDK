@@ -160,6 +160,8 @@ namespace _DL.PlaySafe
         private const int PauseTimeoutSeconds = 30;
         private const int MinimumAudioDurationSeconds = 1;
         private const int UnityMicSampleRate = 16000;
+        private const string OpusModerationEndpoint = "/products/moderation/opus";
+        private const int OpusSampleRate = 48000;
 
         #endregion
 
@@ -362,10 +364,17 @@ namespace _DL.PlaySafe
             if (!isUsingExistingUnityMic)
             {
                 // For Unity Microphone path: set sample rate and create buffer
-                sampleRate = UnityMicSampleRate;
+                sampleRate = OpusSampleRate;
                 channelCount = 1;
 
                 string mic = GetDefaultMicrophone();
+
+                // Verify device supports 48kHz; audio will still encode if not, just at lower quality
+                Microphone.GetDeviceCaps(mic, out int minFreq, out int maxFreq);
+                bool supports48k = (minFreq == 0 && maxFreq == 0) || (OpusSampleRate >= minFreq && OpusSampleRate <= maxFreq);
+                if (!supports48k)
+                    LogWarning($"Microphone does not support {OpusSampleRate}Hz. Recording at device default. Opus quality may be reduced.");
+
                 _audioClipRecording =
                     Microphone.Start(mic, false, RecordingDurationSeconds, sampleRate);
             }
@@ -522,7 +531,9 @@ namespace _DL.PlaySafe
             if (shouldSendAudioClip && _hasFocus)
             {
                 Log($"[StateMachine] StopRecording: SENDING {GetAccumulatedAudioDuration():F1}s of audio ({_sampleIndex} samples) for processing");
-                StartCoroutine(SendAudioClipForAnalysisCoroutine(_audioClipRecording));
+                // TODO: Delete after Opus path verified
+                // StartCoroutine(SendAudioClipForAnalysisCoroutine(_audioClipRecording));
+                StartCoroutine(SendOpusForAnalysisCoroutine());
             }
             else
             {
@@ -580,6 +591,7 @@ namespace _DL.PlaySafe
         // Create a persistent MemoryStream once
         private MemoryStream _reusableStream = new MemoryStream();
 
+        [Obsolete("WAV conversion deprecated. TODO: Delete after Opus path verified.")]
         public (byte[] wavFileBytes, bool isSilent) AudioClipToFile(AudioClip clip)
         {
             if (!clip)
@@ -681,6 +693,79 @@ namespace _DL.PlaySafe
 
         WaitForEndOfFrame WaitForEndOfFrame = new WaitForEndOfFrame();
         
+        private IEnumerator SendOpusForAnalysisCoroutine()
+        {
+            if (_sampleIndex == 0)
+            {
+                LogError("PlaySafeManager: No audio samples recorded.");
+                yield break;
+            }
+
+            bool isSilent = true;
+            for (int i = 0; i < _sampleIndex; i++)
+            {
+                if (Mathf.Abs(audioBufferFromExistingMic[i]) > _silenceThreshold)
+                {
+                    isSilent = false;
+                    break;
+                }
+            }
+            if (isSilent)
+            {
+                Log("PlaySafeManager: Audio is silent. Skipping Opus upload.");
+                yield break;
+            }
+
+            byte[] opusBlob;
+            int packetCount;
+            try
+            {
+                (opusBlob, packetCount) = PlaySafeOpusEncoder.Encode(audioBufferFromExistingMic, _sampleIndex, sampleRate);
+            }
+            catch (Exception e)
+            {
+                LogError($"PlaySafeManager: Opus encode failed: {e.Message}");
+                yield break;
+            }
+
+            if (packetCount == 0)
+            {
+                LogError("PlaySafeManager: Opus encoder produced 0 packets.");
+                yield break;
+            }
+
+            yield return WaitForEndOfFrame;
+
+            WWWForm form = SetupForm();
+            form.AddBinaryData("opusChunks", opusBlob, "audio.opus", "application/octet-stream");
+            form.AddField("packetCount", packetCount);
+            form.AddField("sampleRate", OpusSampleRate);
+            form.AddField("channels", 1);
+            form.AddField("estimatedDuration", Math.Max(1, _sampleIndex / OpusSampleRate));
+
+            yield return WaitForEndOfFrame;
+
+            if (_shouldRecordPlayTestNotes)
+            {
+                form.AddField("playerUserId", GetTelemetry().UserId);
+
+                if (!string.IsNullOrEmpty(_playTestNotesId))
+                {
+                    form.AddField("playTestNotesId", _playTestNotesId);
+                }
+
+                Log("PlaySafeManager: Taking notes, sending Opus audio for transcription");
+
+                string notesUrl = AddTokenToUrl(PlayTestDevBaseEndpoint + "/notes/transcripts");
+                yield return StartCoroutine(SendFormCoroutine(notesUrl, form));
+            }
+            else
+            {
+                yield return StartCoroutine(SendFormCoroutine(AddTokenToUrl(OpusModerationEndpoint), form));
+            }
+        }
+
+        [Obsolete("WAV send path deprecated. Use SendOpusForAnalysisCoroutine. TODO: Delete after Opus path verified.")]
         private IEnumerator SendAudioClipForAnalysisCoroutine(AudioClip clip)
         {
             if (clip == null)
