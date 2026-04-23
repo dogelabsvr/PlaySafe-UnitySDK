@@ -26,7 +26,7 @@ namespace _DL.PlaySafe
         [Header("Logging")]
         [SerializeField] private PlaySafeLogLevel logLevel = PlaySafeLogLevel.Info;
         
-        private const string PlaysafeBaseURL = "https://dl-voice-ai.dogelabs.workers.dev";
+        private const string PlaysafeBaseURL = "https://api.playsafe.ai;
         private const string VoiceModerationEndpoint = "/products/moderation";
         private const string PlayTestDevBaseEndpoint = "/dev";
         private const string ReportEndpoint = "/products/moderation";
