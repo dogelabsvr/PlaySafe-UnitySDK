@@ -1518,13 +1518,7 @@ namespace _DL.PlaySafe
         /// </summary>
         public async Task<ProductActionsResponse> GetProductActionsAsync()
         {
-            if (!_isPlayerDev)
-            {
-                LogWarning("GetProductActionsAsync: Only dev players can get product actions.");
-                return null;
-            }
-
-            string url = $"{PlaysafeBaseURL}/product-actions";
+             string url = $"{PlaysafeBaseURL}/product-actions";
 
             var response = await SendApiRequest<ProductActionsResponse>(url, new ApiRequestOptions
             {
@@ -1554,12 +1548,6 @@ namespace _DL.PlaySafe
             int numberOfStrikes = 1,
             string description = null)
         {
-            if (!_isPlayerDev)
-            {
-                LogWarning("TakeManualActionOnPlayerAsync: Only dev players can manually action players.");
-                return null;
-            }
-
             string url = $"{PlaysafeBaseURL}{VoiceModerationEndpoint}/manual-action/player";
 
             var requestBody = new
