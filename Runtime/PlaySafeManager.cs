@@ -3,6 +3,7 @@ using System.Collections;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Unity.Collections;
@@ -116,7 +117,10 @@ namespace _DL.PlaySafe
         [Header("Configuration")]
         [SerializeField] private bool debugEnableRecord = false;
         [SerializeField] private string appKey;
-         private float _silenceThreshold = 0.02f;
+        // Default is deliberately near digital-silence. Photon's post-AGC/noise-suppression output often peaks
+        // well below 0.02 even during normal speech, so a loud-voice threshold would drop legitimate audio.
+        // Remote config can still override via config.AudioSilenceThreshold.
+        private float _silenceThreshold = 0.001f;
 
         public int sampleRate = 24000;
         public int channelCount = 1;
@@ -143,14 +147,27 @@ namespace _DL.PlaySafe
         private Stopwatch _lastRecording = new Stopwatch();
         private const int RecordingDurationSeconds = 10;
         private int _recordingIntermissionSeconds = 60;  // May be updated from remote config
-        
+
         #if PHOTON_VOICE_DEFINED
         private PhotonPlaySafeProcessor _photonPlaySafeProcessor;
+        private bool _photonProcessorAttached = false;
+        private long _appendPausedDropCount = 0;
         #endif
-        
+
         public float[] audioBufferFromExistingMic;
 
         private int _sampleIndex = 0;
+
+        // Pause/Resume recording fields
+        private bool _isPaused = false;
+        private bool _previousCanRecordState = false;
+        private Stopwatch _activeRecordingTime = new Stopwatch();
+        private Stopwatch _pauseTimer = new Stopwatch();
+        private const int PauseTimeoutSeconds = 30;
+        private const int MinimumAudioDurationSeconds = 1;
+        private const int UnityMicSampleRate = 16000;
+        private const string OpusModerationEndpoint = "/products/moderation/opus";
+        private const int OpusSampleRate = 48000;
 
         #endregion
 
@@ -182,7 +199,7 @@ namespace _DL.PlaySafe
         private void Update()
         {
             UpdateDebugInfo();
-            
+
             if (!_isInitialized)
             {
                 Debug.Log("PlaySafeManager is not initialized");
@@ -194,24 +211,56 @@ namespace _DL.PlaySafe
                 Debug.Log("PlaySafeManager no microphone permissions");
                 return;
             }
-			
-			
-			if(_isRecording && (!CanRecord() && !Application.isEditor))
-			{ 
-                Debug.Log("Stop recording microphone");
-				bool shouldSendAudioForProcessing = _lastRecording.Elapsed.TotalSeconds > RecordingDurationSeconds;
-				StopRecording(shouldSendAudioForProcessing);
-			}
-            else if (ShouldRecord() && !_isRecording)
+
+            // Track CanRecord state for transition detection
+            bool currentCanRecord = CanRecord();
+
+            // State transitions: Recording -> Paused (when CanRecord becomes false)
+        if (_isRecording && !_isPaused && !currentCanRecord && !Application.isEditor)
             {
-                Debug.Log("Start recording microphone");
+                Log($"[StateMachine] RECORDING -> PAUSED (CanRecord became false, accumulated: {GetAccumulatedAudioDuration():F1}s)");
+                PauseRecording();
+            }
+            // State transitions: Paused -> Recording (when CanRecord becomes true)
+            else if (_isRecording && _isPaused && currentCanRecord)
+            {
+                Log($"[StateMachine] PAUSED -> RECORDING (CanRecord became true, total pause time: {_pauseTimer.Elapsed.TotalSeconds:F1}s)");
+                ResumeRecording();
+            }
+
+            // Check total pause time: if cumulative pause time exceeds threshold, stop and send what we have
+            // This prevents exploit where user rapidly toggles mute to avoid accumulating 10s of audio
+            // Checked regardless of current state (recording/paused) - if total pause time hits threshold, send immediately
+            if (_isRecording && _pauseTimer.Elapsed.TotalSeconds >= PauseTimeoutSeconds)
+            {
+                bool hasMinimumAudio = GetAccumulatedAudioDuration() >= MinimumAudioDurationSeconds;
+                if (hasMinimumAudio)
+                {
+                    Log($"[StateMachine] -> SEND (total pause time {_pauseTimer.Elapsed.TotalSeconds:F1}s >= {PauseTimeoutSeconds}s threshold, sending {GetAccumulatedAudioDuration():F1}s of audio)");
+                }
+                else
+                {
+                    Log($"[StateMachine] -> DISCARD (total pause time {_pauseTimer.Elapsed.TotalSeconds:F1}s >= {PauseTimeoutSeconds}s threshold, discarding {GetAccumulatedAudioDuration():F1}s of audio - below {MinimumAudioDurationSeconds}s minimum)");
+                }
+                StopRecording(hasMinimumAudio);
+            }
+
+            // Check if accumulated audio reached target duration (applies to both Recording and Paused states)
+            if (_isRecording && GetAccumulatedAudioDuration() >= RecordingDurationSeconds)
+            {
+                string currentState = _isPaused ? "PAUSED" : "RECORDING";
+                Log($"[StateMachine] {currentState} -> SEND (target duration {RecordingDurationSeconds}s reached)");
+                StopRecording(true);
+            }
+
+            // Start new recording if conditions are met
+            if (ShouldRecord() && !_isRecording)
+            {
+                Log("[StateMachine] IDLE -> RECORDING (ShouldRecord() returned true)");
                 StartRecording();
             }
-            else if (_isRecording && _lastRecording.Elapsed.TotalSeconds > RecordingDurationSeconds)
-            {
-                
-                StopRecording();
-            }
+
+            _previousCanRecordState = currentCanRecord;
         }
 
         #endregion
@@ -246,8 +295,9 @@ namespace _DL.PlaySafe
                 Debug.Log("SetupPhotonVoice: Photon voice created");
                 channelCount = voice.Info.Channels;
                 sampleRate = voice.Info.SamplingRate;
-                
+
                 voice.AddPostProcessor(_photonPlaySafeProcessor);
+                _photonProcessorAttached = true;
             }
         }
         #endif
@@ -320,18 +370,101 @@ namespace _DL.PlaySafe
 
             if (!isUsingExistingUnityMic)
             {
+                // For Unity Microphone path: set sample rate and create buffer
+                sampleRate = OpusSampleRate;
+                channelCount = 1;
+
                 string mic = GetDefaultMicrophone();
+
+                // Verify device supports 48kHz; audio will still encode if not, just at lower quality
+                Microphone.GetDeviceCaps(mic, out int minFreq, out int maxFreq);
+                bool supports48k = (minFreq == 0 && maxFreq == 0) || (OpusSampleRate >= minFreq && OpusSampleRate <= maxFreq);
+                if (!supports48k)
+                    LogWarning($"Microphone does not support {OpusSampleRate}Hz. Recording at device default. Opus quality may be reduced.");
+
                 _audioClipRecording =
-                    Microphone.Start(mic, false, RecordingDurationSeconds, 16000); // 10 seconds at 16 kHz
+                    Microphone.Start(mic, false, RecordingDurationSeconds, sampleRate);
             }
-            else
+
+            // Create buffer for both paths (Unity Mic and Photon use the same buffer)
+            CreateNewBuffer();
+
+            #if PHOTON_VOICE_DEFINED
+            if (isUsingExistingUnityMic)
             {
-                CreateNewBuffer();
+                _photonPlaySafeProcessor?.ResetStats();
+                Interlocked.Exchange(ref _appendPausedDropCount, 0);
             }
-            
+            #endif
+
             _isRecording = true;
+            _isPaused = false;
             _lastRecording.Restart();
-            Log("PlaySafeManager: Recording started" + (_shouldRecordPlayTestNotes ? " (continuous notes recording)" : "") + (ShouldRecord() ? " (should record)" : " (should not record)") + (CanRecord() ? " (can record)" : " (cannot record)"));
+            _activeRecordingTime.Restart();
+            _pauseTimer.Reset();
+
+            Log($"[StateMachine] Recording started - mode: {(isUsingExistingUnityMic ? "Photon" : "UnityMic")}, sampleRate: {sampleRate}, channels: {channelCount}" +
+                (_shouldRecordPlayTestNotes ? ", playtest notes: ON" : ""));
+        }
+
+        private void PauseRecording()
+        {
+            if (!_isRecording || _isPaused)
+                return;
+
+            _isPaused = true;
+            _activeRecordingTime.Stop();
+            _pauseTimer.Start(); // Continue accumulating total pause time (not reset)
+
+            if (!isUsingExistingUnityMic)
+            {
+                // For Unity Microphone: extract recorded samples to buffer, then stop microphone
+                string mic = GetDefaultMicrophone();
+                int currentPosition = Microphone.GetPosition(mic);
+
+                if (currentPosition > 0 && _audioClipRecording != null)
+                {
+                    // Extract samples from the AudioClip
+                    float[] samples = new float[currentPosition];
+                    _audioClipRecording.GetData(samples, 0);
+
+                    // Copy to buffer if there's room
+                    int samplesToCopy = Mathf.Min(samples.Length, audioBufferFromExistingMic.Length - _sampleIndex);
+                    if (samplesToCopy > 0)
+                    {
+                        System.Array.Copy(samples, 0, audioBufferFromExistingMic, _sampleIndex, samplesToCopy);
+                        _sampleIndex += samplesToCopy;
+                    }
+
+                    Log($"[StateMachine] PauseRecording: extracted {samplesToCopy} samples from Unity Microphone");
+                }
+
+                Microphone.End(mic);
+            }
+            // For Photon path: AppendToBuffer will check _isPaused and skip appending
+
+            Log($"[StateMachine] Recording PAUSED - accumulated audio: {GetAccumulatedAudioDuration():F1}s, samples in buffer: {_sampleIndex}");
+        }
+
+        private void ResumeRecording()
+        {
+            if (!_isRecording || !_isPaused)
+                return;
+
+            _isPaused = false;
+            _pauseTimer.Stop(); // Stop but preserve total pause time (for cumulative tracking)
+            _activeRecordingTime.Start();
+
+            if (!isUsingExistingUnityMic)
+            {
+                // For Unity Microphone: start fresh recording (will continue accumulating to same buffer)
+                string mic = GetDefaultMicrophone();
+                _audioClipRecording = Microphone.Start(mic, false, RecordingDurationSeconds, sampleRate);
+                Log("[StateMachine] ResumeRecording: Unity Microphone restarted");
+            }
+            // For Photon path: AppendToBuffer will resume appending since _isPaused is now false
+
+            Log($"[StateMachine] Recording RESUMED - continuing from {GetAccumulatedAudioDuration():F1}s, samples in buffer: {_sampleIndex}");
         }
         
         private void CreateNewBuffer ()
@@ -342,8 +475,17 @@ namespace _DL.PlaySafe
         
         public void AppendToBuffer(float[] newData)
         {
+            // Guard: only append when actively recording (not paused, not stopped)
+            if (!_isRecording) return;
+            if (_isPaused)
+            {
+                #if PHOTON_VOICE_DEFINED
+                Interlocked.Increment(ref _appendPausedDropCount);
+                #endif
+                return;
+            }
             if (audioBufferFromExistingMic == null) return;
-            
+
             int newDataLength = newData.Length;
             if (newDataLength > 0 && _sampleIndex + newDataLength < audioBufferFromExistingMic.Length)
             {
@@ -356,58 +498,76 @@ namespace _DL.PlaySafe
         {
             if (channelCount < 1) return null;
             if (audioBufferFromExistingMic == null) return null;
-            if (audioBufferFromExistingMic.Length == 0) return null;
-            
-            AudioClip clip = AudioClip.Create("RecordedAudio", audioBufferFromExistingMic.Length / channelCount, 
+            if (_sampleIndex == 0) return null;
+
+            // Create a trimmed buffer with only the recorded samples
+            float[] trimmedBuffer = new float[_sampleIndex];
+            System.Array.Copy(audioBufferFromExistingMic, 0, trimmedBuffer, 0, _sampleIndex);
+
+            AudioClip clip = AudioClip.Create("RecordedAudio", _sampleIndex / channelCount,
                 channelCount, sampleRate, false);
-            clip.SetData(audioBufferFromExistingMic, 0);
-            LogWarning("PlaySafeManager Audioclip length: " + clip.length + ", sample rate: " + sampleRate + ", channels: " + channelCount);
+            clip.SetData(trimmedBuffer, 0);
+            LogWarning($"PlaySafeManager: AudioClip created - length: {clip.length}s, samples: {_sampleIndex}, sample rate: {sampleRate}, channels: {channelCount}");
             return clip;
         }
 
+        /// <summary>
+        /// Returns the accumulated audio duration in seconds.
+        /// Uses the active recording time stopwatch which only runs while actively recording (not paused).
+        /// </summary>
+        private double GetAccumulatedAudioDuration()
+        {
+            return _activeRecordingTime.Elapsed.TotalSeconds;
+        }
 
         private void StopRecording(bool shouldSendAudioClip = true)
         {
             if (!_isRecording)
                 return;
 
-            if (isUsingExistingUnityMic)
+            // For Unity Microphone path: extract any remaining samples if not paused
+            if (!isUsingExistingUnityMic && !_isPaused)
             {
-                _audioClipRecording = CreateAudioClip();
-                
-                // debug echo loopback
-                /* 
-                AudioSource audioSource = GetComponent<AudioSource>();
-                if (audioSource == null)
+                string mic = GetDefaultMicrophone();
+                int currentPosition = Microphone.GetPosition(mic);
+
+                if (currentPosition > 0 && _audioClipRecording != null)
                 {
-                    audioSource = gameObject.AddComponent<AudioSource>();
+                    float[] samples = new float[currentPosition];
+                    _audioClipRecording.GetData(samples, 0);
+
+                    int samplesToCopy = Mathf.Min(samples.Length, audioBufferFromExistingMic.Length - _sampleIndex);
+                    if (samplesToCopy > 0)
+                    {
+                        System.Array.Copy(samples, 0, audioBufferFromExistingMic, _sampleIndex, samplesToCopy);
+                        _sampleIndex += samplesToCopy;
+                    }
                 }
 
-                audioSource.clip = _audioClipRecording;
-                audioSource.volume = 1f;
-                audioSource.spatialBlend = 0f;
-                audioSource.Play();
-                */
+                Microphone.End(mic);
+            }
+
+            // Create AudioClip from buffer (same for both Unity Mic and Photon paths)
+            _audioClipRecording = CreateAudioClip();
+
+            if (shouldSendAudioClip && _hasFocus)
+            {
+                Log($"[StateMachine] StopRecording: SENDING {GetAccumulatedAudioDuration():F1}s of audio ({_sampleIndex} samples) for processing");
+                // TODO: Delete after Opus path verified
+                // StartCoroutine(SendAudioClipForAnalysisCoroutine(_audioClipRecording));
+                StartCoroutine(SendOpusForAnalysisCoroutine());
             }
             else
             {
-                Microphone.End(null);
+                LogWarning($"[StateMachine] StopRecording: DISCARDED - shouldSendAudioClip={shouldSendAudioClip}, hasFocus={_hasFocus}, audio={GetAccumulatedAudioDuration():F1}s");
             }
 
-			if(shouldSendAudioClip && _hasFocus && _audioClipRecording != null) {
-                Log("PlaySafeManager: Sending audio for processing");
-            	StartCoroutine(SendAudioClipForAnalysisCoroutine(_audioClipRecording));
-			}
-            else if (_audioClipRecording == null)
-            {
-                LogWarning("PlaySafeManager: AudioClip is null, skipping analysis");
-            }
-            else
-            {
-                LogWarning($"PlaySafeManager: Recording cancelled – shouldSendAudioClip = {shouldSendAudioClip}, Game Has Focus = {_hasFocus}. This can happen if you mute your mic during recording");
-            }
-
+            // Reset all recording state
             _isRecording = false;
+            _isPaused = false;
+            _activeRecordingTime.Reset();
+            _pauseTimer.Reset();
+            Log("[StateMachine] Recording STOPPED - state reset to IDLE");
         }
         
         public void _ToggleRecording()
@@ -453,6 +613,7 @@ namespace _DL.PlaySafe
         // Create a persistent MemoryStream once
         private MemoryStream _reusableStream = new MemoryStream();
 
+        [Obsolete("WAV conversion deprecated. TODO: Delete after Opus path verified.")]
         public (byte[] wavFileBytes, bool isSilent) AudioClipToFile(AudioClip clip)
         {
             if (!clip)
@@ -537,9 +698,12 @@ namespace _DL.PlaySafe
         {
             AudioEventRequestData telemetry = GetTelemetry();
             WWWForm form = new WWWForm();
-
+            
             form.AddField("userId", telemetry.UserId);
             form.AddField("roomId", telemetry.RoomId);
+            form.AddField("source", ModerationSource.UNITY_SDK.ToString());
+            form.AddField("platform", ModerationPlatform.IN_GAME.ToString());
+            form.AddField("language", Application.systemLanguage.ToString());
             
             if(telemetry.UserName != null) 
             {
@@ -551,6 +715,132 @@ namespace _DL.PlaySafe
 
         WaitForEndOfFrame WaitForEndOfFrame = new WaitForEndOfFrame();
         
+        private IEnumerator SendOpusForAnalysisCoroutine()
+        {
+            if (_sampleIndex == 0)
+            {
+                #if PHOTON_VOICE_DEFINED
+                if (isUsingExistingUnityMic)
+                {
+                    // Match main's graceful behavior: Photon may not have delivered any frames in this window
+                    // (voice not yet active, muted, between recorder sessions, etc.). Skip the upload quietly
+                    // and surface the Photon processor counters at Log level for debugging.
+                    var stats = _photonPlaySafeProcessor != null
+                        ? _photonPlaySafeProcessor.GetStatsSnapshot()
+                        : default;
+                    long pausedDrops = Interlocked.Read(ref _appendPausedDropCount);
+                    Log($"PlaySafeManager: No audio samples recorded in Photon window, skipping upload. " +
+                        $"[photonProcessorAttached={_photonProcessorAttached}, processorCalls={stats.ProcessCallCount}, " +
+                        $"totalSamples={stats.TotalSamplesSeen}, nonSilentSamples={stats.NonSilentSampleCount}, " +
+                        $"appendPausedDrops={pausedDrops}]");
+                }
+                else
+                #endif
+                {
+                    Log("PlaySafeManager: No audio samples recorded, skipping upload.");
+                }
+                yield break;
+            }
+
+            // Single pass: peak magnitude + above-threshold check. Peak is logged on skip so the
+            // actual audio level is visible when tuning _silenceThreshold (e.g. via remote config).
+            float peak = 0f;
+            for (int i = 0; i < _sampleIndex; i++)
+            {
+                float abs = Mathf.Abs(audioBufferFromExistingMic[i]);
+                if (abs > peak) peak = abs;
+            }
+            if (peak <= _silenceThreshold)
+            {
+                Log($"PlaySafeManager: Audio below silence threshold (peak={peak:F5}, threshold={_silenceThreshold:F5}). Skipping Opus upload.");
+                yield break;
+            }
+
+            // Opus (via Concentus) supports 8/12/16/24/48 kHz, but FrameSize=960 only produces valid
+            // frame durations at 16/24/48 kHz. Reject other rates before the encoder throws.
+            int effectiveSampleRate = sampleRate;
+            if (effectiveSampleRate != 16000 && effectiveSampleRate != 24000 && effectiveSampleRate != 48000)
+            {
+                LogError($"PlaySafeManager: Unsupported sampleRate {effectiveSampleRate}Hz for Opus encoder. " +
+                         "Expected 16000, 24000, or 48000. Configure Photon Recorder.SamplingRate accordingly.");
+                yield break;
+            }
+
+            // The Opus encoder is mono-only. If Photon delivered multi-channel audio (interleaved), downmix
+            // to mono by averaging channels so we don't encode interleaved frames as if they were mono.
+            float[] encodeBuffer;
+            int encodeSampleCount;
+            if (channelCount <= 1)
+            {
+                encodeBuffer = audioBufferFromExistingMic;
+                encodeSampleCount = _sampleIndex;
+            }
+            else
+            {
+                encodeSampleCount = _sampleIndex / channelCount;
+                encodeBuffer = new float[encodeSampleCount];
+                for (int i = 0; i < encodeSampleCount; i++)
+                {
+                    float sum = 0f;
+                    int baseIdx = i * channelCount;
+                    for (int c = 0; c < channelCount; c++)
+                    {
+                        sum += audioBufferFromExistingMic[baseIdx + c];
+                    }
+                    encodeBuffer[i] = sum / channelCount;
+                }
+            }
+
+            byte[] opusBlob;
+            int packetCount;
+            try
+            {
+                (opusBlob, packetCount) = PlaySafeOpusEncoder.Encode(encodeBuffer, encodeSampleCount, effectiveSampleRate);
+            }
+            catch (Exception e)
+            {
+                LogError($"PlaySafeManager: Opus encode failed: {e.Message}");
+                yield break;
+            }
+
+            if (packetCount == 0)
+            {
+                LogError("PlaySafeManager: Opus encoder produced 0 packets.");
+                yield break;
+            }
+
+            yield return WaitForEndOfFrame;
+
+            WWWForm form = SetupForm();
+            form.AddBinaryData("opusChunks", opusBlob, "audio.opus", "application/octet-stream");
+            form.AddField("packetCount", packetCount);
+            form.AddField("sampleRate", effectiveSampleRate);
+            form.AddField("channels", 1);
+            form.AddField("estimatedDuration", Math.Max(1, encodeSampleCount / effectiveSampleRate));
+
+            yield return WaitForEndOfFrame;
+
+            if (_shouldRecordPlayTestNotes)
+            {
+                form.AddField("playerUserId", GetTelemetry().UserId);
+
+                if (!string.IsNullOrEmpty(_playTestNotesId))
+                {
+                    form.AddField("playTestNotesId", _playTestNotesId);
+                }
+
+                Log("PlaySafeManager: Taking notes, sending Opus audio for transcription");
+
+                string notesUrl = AddTokenToUrl(PlayTestDevBaseEndpoint + "/notes/transcripts");
+                yield return StartCoroutine(SendFormCoroutine(notesUrl, form));
+            }
+            else
+            {
+                yield return StartCoroutine(SendFormCoroutine(AddTokenToUrl(OpusModerationEndpoint), form));
+            }
+        }
+
+        [Obsolete("WAV send path deprecated. Use SendOpusForAnalysisCoroutine. TODO: Delete after Opus path verified.")]
         private IEnumerator SendAudioClipForAnalysisCoroutine(AudioClip clip)
         {
             if (clip == null)
@@ -570,6 +860,8 @@ namespace _DL.PlaySafe
 
             int audioDurationInSeconds = (int) Math.Max(1,clip.length);  
             form.AddField("durationInSeconds", audioDurationInSeconds);
+            
+    
             
             form.AddBinaryData("audio", wavFileBytes, "audio.wav", "audio/wav");
             yield return WaitForEndOfFrame;
@@ -663,7 +955,9 @@ namespace _DL.PlaySafe
             PlayerReportRequest reportRequest = new PlayerReportRequest
             {
                 reporterPlayerUserId = reporterUserId,
-                targetPlayerUserId = targetUserId
+                targetPlayerUserId = targetUserId,
+                source = ModerationSource.UNITY_SDK,
+                platform = ModerationPlatform.IN_GAME
             };
 
             string json = JsonConvert.SerializeObject(reportRequest);
@@ -708,7 +1002,9 @@ namespace _DL.PlaySafe
             var reportRequest = new PlayerReportRequest
             {
                 reporterPlayerUserId = GetTelemetry().UserId,
-                targetPlayerUserId = targetUserId
+                targetPlayerUserId = targetUserId,
+                source = ModerationSource.UNITY_SDK,
+                platform = ModerationPlatform.IN_GAME
             };
 
             string json = JsonConvert.SerializeObject(reportRequest);
@@ -766,7 +1062,9 @@ namespace _DL.PlaySafe
             var reportRequest = new PlayerReportRequest
             {
                 reporterPlayerUserId = GetTelemetry().UserId,
-                targetPlayerUserId = targetUserId
+                targetPlayerUserId = targetUserId,
+                source = ModerationSource.UNITY_SDK,
+                platform = ModerationPlatform.IN_GAME
             };
 
             string json = JsonConvert.SerializeObject(reportRequest);
@@ -1199,7 +1497,9 @@ namespace _DL.PlaySafe
             var requestBody = new
             {
                 playerUsername,
-                appealReason = !string.IsNullOrEmpty(appealReason) ? appealReason : null
+                appealReason = !string.IsNullOrEmpty(appealReason) ? appealReason : null,
+                source = ModerationSource.UNITY_SDK,
+                platform = ModerationPlatform.IN_GAME
             };
 
             var response = await SendApiRequest<BanAppealResponse>(url, new ApiRequestOptions
@@ -1207,6 +1507,112 @@ namespace _DL.PlaySafe
                 Method = "POST",
                 RequestBody = requestBody,
                 SuccessMessage = "Ban appeal successful"
+            });
+
+            return response.Success ? response.Data : null;
+        }
+
+        /// <summary>
+        /// Gets the list of available product actions that can be taken against players.
+        /// This method is only available to dev players.
+        /// </summary>
+        public async Task<ProductActionsResponse> GetProductActionsAsync()
+        {
+            if (!_isPlayerDev)
+            {
+                LogWarning("GetProductActionsAsync: Only dev players can get product actions.");
+                return null;
+            }
+
+            string url = $"{PlaysafeBaseURL}/product-actions";
+
+            var response = await SendApiRequest<ProductActionsResponse>(url, new ApiRequestOptions
+            {
+                Method = "GET",
+                SuccessMessage = "Product actions retrieved successfully"
+            });
+
+            return response.Success ? response.Data : null;
+        }
+
+        /// <summary>
+        /// Manually applies a moderation action on a player.
+        /// Use <see cref="GetProductActionsAsync"/> to retrieve available actions first.
+        /// This method is only available to dev players.
+        /// </summary>
+        /// <param name="playerUserId">The target player's user ID (required)</param>
+        /// <param name="productActionId">The product action ID to apply (required)</param>
+        /// <param name="durationInMinutes">Duration of the action in minutes (required)</param>
+        /// <param name="playerUsername">The target player's username (required)</param>
+        /// <param name="numberOfStrikes">Number of strikes to apply (optional, default 1)</param>
+        /// <param name="description">Description of why the action is being taken (optional)</param>
+        public async Task<ManualActionResponse> TakeManualActionOnPlayerAsync(
+            string playerUserId,
+            string productActionId,
+            int durationInMinutes,
+            string playerUsername,
+            int numberOfStrikes = 1,
+            string description = null)
+        {
+            if (!_isPlayerDev)
+            {
+                LogWarning("TakeManualActionOnPlayerAsync: Only dev players can manually action players.");
+                return null;
+            }
+
+            string url = $"{PlaysafeBaseURL}{VoiceModerationEndpoint}/manual-action/player";
+
+            var requestBody = new
+            {
+                playerUserId,
+                playerUsername,
+                productActionId,
+                durationInMinutes,
+                numberOfStrikes,
+                description,
+                source = ModerationSource.UNITY_SDK,
+                platform = ModerationPlatform.IN_GAME
+            };
+
+            var response = await SendApiRequest<ManualActionResponse>(url, new ApiRequestOptions
+            {
+                Method = "POST",
+                RequestBody = requestBody,
+                SuccessMessage = "Manual action applied successfully"
+            });
+
+            return response.Success ? response.Data : null;
+        }
+
+        /// <summary>
+        /// Forgives a player, clearing their active action log and optionally resetting their strikes.
+        /// This method is only available to dev players.
+        /// </summary>
+        /// <param name="playerUserId">The target player's user ID (required)</param>
+        /// <param name="shouldResetStrikes">Whether to reset the player's strike count (optional, default false)</param>
+        public async Task<ForgivePlayerResponse> ForgivePlayerAsync(
+            string playerUserId,
+            bool shouldResetStrikes = false)
+        {
+            if (!_isPlayerDev)
+            {
+                LogWarning("ForgivePlayerAsync: Only dev players can forgive players.");
+                return null;
+            }
+
+            string url = $"{PlaysafeBaseURL}{VoiceModerationEndpoint}/forgive";
+
+            var requestBody = new
+            {
+                playerUserId,
+                shouldResetStrikes
+            };
+
+            var response = await SendApiRequest<ForgivePlayerResponse>(url, new ApiRequestOptions
+            {
+                Method = "POST",
+                RequestBody = requestBody,
+                SuccessMessage = "Player forgiven successfully"
             });
 
             return response.Success ? response.Data : null;
@@ -1499,6 +1905,8 @@ namespace _DL.PlaySafe
         {
             public string reporterPlayerUserId;
             public string targetPlayerUserId;
+            public ModerationSource source;
+            public ModerationPlatform platform;
         }
 
         public class AudioEventRequestData
@@ -1507,6 +1915,8 @@ namespace _DL.PlaySafe
             public string RoomId;
             public string UserName;
             public string Language;
+            public ModerationSource Source;
+            public ModerationPlatform Platform;
         }
 
         #endregion

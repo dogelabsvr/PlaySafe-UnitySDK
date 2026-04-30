@@ -4,8 +4,7 @@ using Newtonsoft.Json;
 using System.Collections.Generic;
 
 namespace _DL.PlaySafe  
-{
-
+{ 
     public class PlaySafeApiResponse : PlaySafeApiResponse<object> {}
     
     public class PlaySafeApiResponse<T>
@@ -247,6 +246,42 @@ namespace _DL.PlaySafe
     public class BanAppealResponse: PlaySafeApiResponse<bool> {}
     //#endregion
 
+    //#region Product Actions
+    public class ProductActionData
+    {
+        [JsonProperty("id")]
+        public string Id { get; set; }
+
+        [JsonProperty("name")]
+        public string Name { get; set; }
+
+        [JsonProperty("description")]
+        public string Description { get; set; }
+
+        [JsonProperty("value")]
+        public string Value { get; set; }
+
+        [JsonProperty("isPermanent")]
+        public bool IsPermanent { get; set; }
+
+        [JsonProperty("createdAt")]
+        public DateTime CreatedAt { get; set; }
+
+        [JsonProperty("updatedAt")]
+        public DateTime UpdatedAt { get; set; }
+    }
+
+    public class ProductActionsResponse : PlaySafeApiResponse<List<ProductActionData>> {}
+    //#endregion
+
+    //#region Manual Action
+    public class ManualActionResponse : PlaySafeApiResponse<ActionLog> {}
+    //#endregion
+
+    //#region Forgive Player
+    public class ForgivePlayerResponse : PlaySafeApiResponse<object> {}
+    //#endregion
+
     //#region Moderation events
     public class ModerationEvent
     {
@@ -329,4 +364,20 @@ namespace _DL.PlaySafe
         public string Token { get; set; }
     }
     #endregion
+
+    #region Moderation Platform and Source
+    public class ModerationPlatform
+    {
+        public static readonly ModerationPlatform IN_GAME   = new("in-game");
+        public string Value { get; }
+        private ModerationPlatform(string value) => Value = value;
+    }
+
+    public class ModerationSource
+    {
+        public static readonly ModerationSource UNITY_SDK   = new("unity-sdk");
+        public string Value { get; }
+        private ModerationSource(string value) => Value = value;
+    }
+    #endregion 
 }
