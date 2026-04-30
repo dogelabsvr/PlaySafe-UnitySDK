@@ -3,6 +3,7 @@ using System.Collections;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Unity.Collections;
@@ -26,7 +27,7 @@ namespace _DL.PlaySafe
         [Header("Logging")]
         [SerializeField] private PlaySafeLogLevel logLevel = PlaySafeLogLevel.Info;
         
-        private const string PlaysafeBaseURL = "https://api.playsafe.ai;
+        private const string PlaysafeBaseURL = "https://dl-voice-ai.dogelabs.workers.dev";
         private const string VoiceModerationEndpoint = "/products/moderation";
         private const string PlayTestDevBaseEndpoint = "/dev";
         private const string ReportEndpoint = "/products/moderation";
@@ -116,7 +117,10 @@ namespace _DL.PlaySafe
         [Header("Configuration")]
         [SerializeField] private bool debugEnableRecord = false;
         [SerializeField] private string appKey;
-         private float _silenceThreshold = 0.02f;
+        // Default is deliberately near digital-silence. Photon's post-AGC/noise-suppression output often peaks
+        // well below 0.02 even during normal speech, so a loud-voice threshold would drop legitimate audio.
+        // Remote config can still override via config.AudioSilenceThreshold.
+        private float _silenceThreshold = 0.001f;
 
         public int sampleRate = 24000;
         public int channelCount = 1;
@@ -146,6 +150,8 @@ namespace _DL.PlaySafe
 
         #if PHOTON_VOICE_DEFINED
         private PhotonPlaySafeProcessor _photonPlaySafeProcessor;
+        private bool _photonProcessorAttached = false;
+        private long _appendPausedDropCount = 0;
         #endif
 
         public float[] audioBufferFromExistingMic;
@@ -289,8 +295,9 @@ namespace _DL.PlaySafe
                 Debug.Log("SetupPhotonVoice: Photon voice created");
                 channelCount = voice.Info.Channels;
                 sampleRate = voice.Info.SamplingRate;
-                
+
                 voice.AddPostProcessor(_photonPlaySafeProcessor);
+                _photonProcessorAttached = true;
             }
         }
         #endif
@@ -382,6 +389,14 @@ namespace _DL.PlaySafe
             // Create buffer for both paths (Unity Mic and Photon use the same buffer)
             CreateNewBuffer();
 
+            #if PHOTON_VOICE_DEFINED
+            if (isUsingExistingUnityMic)
+            {
+                _photonPlaySafeProcessor?.ResetStats();
+                Interlocked.Exchange(ref _appendPausedDropCount, 0);
+            }
+            #endif
+
             _isRecording = true;
             _isPaused = false;
             _lastRecording.Restart();
@@ -461,7 +476,14 @@ namespace _DL.PlaySafe
         public void AppendToBuffer(float[] newData)
         {
             // Guard: only append when actively recording (not paused, not stopped)
-            if (!_isRecording || _isPaused) return;
+            if (!_isRecording) return;
+            if (_isPaused)
+            {
+                #if PHOTON_VOICE_DEFINED
+                Interlocked.Increment(ref _appendPausedDropCount);
+                #endif
+                return;
+            }
             if (audioBufferFromExistingMic == null) return;
 
             int newDataLength = newData.Length;
@@ -697,30 +719,83 @@ namespace _DL.PlaySafe
         {
             if (_sampleIndex == 0)
             {
-                LogError("PlaySafeManager: No audio samples recorded.");
+                #if PHOTON_VOICE_DEFINED
+                if (isUsingExistingUnityMic)
+                {
+                    // Match main's graceful behavior: Photon may not have delivered any frames in this window
+                    // (voice not yet active, muted, between recorder sessions, etc.). Skip the upload quietly
+                    // and surface the Photon processor counters at Log level for debugging.
+                    var stats = _photonPlaySafeProcessor != null
+                        ? _photonPlaySafeProcessor.GetStatsSnapshot()
+                        : default;
+                    long pausedDrops = Interlocked.Read(ref _appendPausedDropCount);
+                    Log($"PlaySafeManager: No audio samples recorded in Photon window, skipping upload. " +
+                        $"[photonProcessorAttached={_photonProcessorAttached}, processorCalls={stats.ProcessCallCount}, " +
+                        $"totalSamples={stats.TotalSamplesSeen}, nonSilentSamples={stats.NonSilentSampleCount}, " +
+                        $"appendPausedDrops={pausedDrops}]");
+                }
+                else
+                #endif
+                {
+                    Log("PlaySafeManager: No audio samples recorded, skipping upload.");
+                }
                 yield break;
             }
 
-            bool isSilent = true;
+            // Single pass: peak magnitude + above-threshold check. Peak is logged on skip so the
+            // actual audio level is visible when tuning _silenceThreshold (e.g. via remote config).
+            float peak = 0f;
             for (int i = 0; i < _sampleIndex; i++)
             {
-                if (Mathf.Abs(audioBufferFromExistingMic[i]) > _silenceThreshold)
-                {
-                    isSilent = false;
-                    break;
-                }
+                float abs = Mathf.Abs(audioBufferFromExistingMic[i]);
+                if (abs > peak) peak = abs;
             }
-            if (isSilent)
+            if (peak <= _silenceThreshold)
             {
-                Log("PlaySafeManager: Audio is silent. Skipping Opus upload.");
+                Log($"PlaySafeManager: Audio below silence threshold (peak={peak:F5}, threshold={_silenceThreshold:F5}). Skipping Opus upload.");
                 yield break;
+            }
+
+            // Opus (via Concentus) supports 8/12/16/24/48 kHz, but FrameSize=960 only produces valid
+            // frame durations at 16/24/48 kHz. Reject other rates before the encoder throws.
+            int effectiveSampleRate = sampleRate;
+            if (effectiveSampleRate != 16000 && effectiveSampleRate != 24000 && effectiveSampleRate != 48000)
+            {
+                LogError($"PlaySafeManager: Unsupported sampleRate {effectiveSampleRate}Hz for Opus encoder. " +
+                         "Expected 16000, 24000, or 48000. Configure Photon Recorder.SamplingRate accordingly.");
+                yield break;
+            }
+
+            // The Opus encoder is mono-only. If Photon delivered multi-channel audio (interleaved), downmix
+            // to mono by averaging channels so we don't encode interleaved frames as if they were mono.
+            float[] encodeBuffer;
+            int encodeSampleCount;
+            if (channelCount <= 1)
+            {
+                encodeBuffer = audioBufferFromExistingMic;
+                encodeSampleCount = _sampleIndex;
+            }
+            else
+            {
+                encodeSampleCount = _sampleIndex / channelCount;
+                encodeBuffer = new float[encodeSampleCount];
+                for (int i = 0; i < encodeSampleCount; i++)
+                {
+                    float sum = 0f;
+                    int baseIdx = i * channelCount;
+                    for (int c = 0; c < channelCount; c++)
+                    {
+                        sum += audioBufferFromExistingMic[baseIdx + c];
+                    }
+                    encodeBuffer[i] = sum / channelCount;
+                }
             }
 
             byte[] opusBlob;
             int packetCount;
             try
             {
-                (opusBlob, packetCount) = PlaySafeOpusEncoder.Encode(audioBufferFromExistingMic, _sampleIndex, sampleRate);
+                (opusBlob, packetCount) = PlaySafeOpusEncoder.Encode(encodeBuffer, encodeSampleCount, effectiveSampleRate);
             }
             catch (Exception e)
             {
@@ -739,9 +814,9 @@ namespace _DL.PlaySafe
             WWWForm form = SetupForm();
             form.AddBinaryData("opusChunks", opusBlob, "audio.opus", "application/octet-stream");
             form.AddField("packetCount", packetCount);
-            form.AddField("sampleRate", OpusSampleRate);
+            form.AddField("sampleRate", effectiveSampleRate);
             form.AddField("channels", 1);
-            form.AddField("estimatedDuration", Math.Max(1, _sampleIndex / OpusSampleRate));
+            form.AddField("estimatedDuration", Math.Max(1, encodeSampleCount / effectiveSampleRate));
 
             yield return WaitForEndOfFrame;
 
