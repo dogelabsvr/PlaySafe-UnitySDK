@@ -31,6 +31,15 @@ namespace _DL.PlaySafe
         // Server time
         [JsonProperty("serverTime")]
         public string ServerTime { get; set; }
+
+        [JsonProperty("transcript")]
+        public string Transcript { get; set; }
+
+        [JsonProperty("hasSpeech")]
+        public bool HasSpeech { get; set; }
+
+        [JsonProperty("confidence")]
+        public double? Confidence { get; set; }
     }
 
     public class Recommendation
