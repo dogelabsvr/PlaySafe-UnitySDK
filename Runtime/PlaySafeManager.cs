@@ -1,7 +1,6 @@
 using System;
 using System.Collections;
 using System.Diagnostics;
-using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -165,9 +164,8 @@ namespace _DL.PlaySafe
         private Stopwatch _pauseTimer = new Stopwatch();
         private const int PauseTimeoutSeconds = 30;
         private const int MinimumAudioDurationSeconds = 1;
-        private const int UnityMicSampleRate = 16000;
         private const string OpusModerationEndpoint = "/products/moderation/opus";
-        private const int OpusSampleRate = 48000;
+        private const int OpusSampleRate = 16000;
 
         #endregion
 
@@ -494,23 +492,6 @@ namespace _DL.PlaySafe
             }
         }
         
-        private AudioClip CreateAudioClip()
-        {
-            if (channelCount < 1) return null;
-            if (audioBufferFromExistingMic == null) return null;
-            if (_sampleIndex == 0) return null;
-
-            // Create a trimmed buffer with only the recorded samples
-            float[] trimmedBuffer = new float[_sampleIndex];
-            System.Array.Copy(audioBufferFromExistingMic, 0, trimmedBuffer, 0, _sampleIndex);
-
-            AudioClip clip = AudioClip.Create("RecordedAudio", _sampleIndex / channelCount,
-                channelCount, sampleRate, false);
-            clip.SetData(trimmedBuffer, 0);
-            LogWarning($"PlaySafeManager: AudioClip created - length: {clip.length}s, samples: {_sampleIndex}, sample rate: {sampleRate}, channels: {channelCount}");
-            return clip;
-        }
-
         /// <summary>
         /// Returns the accumulated audio duration in seconds.
         /// Uses the active recording time stopwatch which only runs while actively recording (not paused).
@@ -547,14 +528,9 @@ namespace _DL.PlaySafe
                 Microphone.End(mic);
             }
 
-            // Create AudioClip from buffer (same for both Unity Mic and Photon paths)
-            _audioClipRecording = CreateAudioClip();
-
             if (shouldSendAudioClip && _hasFocus)
             {
                 Log($"[StateMachine] StopRecording: SENDING {GetAccumulatedAudioDuration():F1}s of audio ({_sampleIndex} samples) for processing");
-                // TODO: Delete after Opus path verified
-                // StartCoroutine(SendAudioClipForAnalysisCoroutine(_audioClipRecording));
                 StartCoroutine(SendOpusForAnalysisCoroutine());
             }
             else
@@ -604,88 +580,6 @@ namespace _DL.PlaySafe
         #endregion
 
         #region Audio Processing
-
-        /// <summary>
-        /// Converts an AudioClip to a WAV file byte array and checks if it is silent.
-        /// </summary>
-        /// <param name="clip">The AudioClip to convert.</param>
-        /// <returns>A tuple containing the WAV file bytes and a flag indicating if the clip is silent.</returns>
-        // Create a persistent MemoryStream once
-        private MemoryStream _reusableStream = new MemoryStream();
-
-        [Obsolete("WAV conversion deprecated. TODO: Delete after Opus path verified.")]
-        public (byte[] wavFileBytes, bool isSilent) AudioClipToFile(AudioClip clip)
-        {
-            if (!clip)
-                throw new ArgumentNullException(nameof(clip));
-
-            // Reset the reusable MemoryStream.
-            _reusableStream.SetLength(0);
-            _reusableStream.Position = 0;
-
-            int sampleCount = clip.samples * clip.channels;
-            // Reserve header space (44 bytes) for the WAV header.
-            _reusableStream.Write(new byte[44], 0, 44);
-
-            // Get the audio samples.
-            float[] samples = new float[sampleCount];
-            clip.GetData(samples, 0);
-
-            // Create a single byte array for the audio data.
-            // Each sample will become 2 bytes (16 bits).
-            byte[] audioBytes = new byte[sampleCount * sizeof(short)];
-            
-            bool isSilent = true;
-            float rescaleFactor = 32767f;
-
-            // Convert each sample directly to bytes.
-            for (int i = 0; i < sampleCount; i++)
-            {
-                float sample = samples[i];
-               
-                if (isSilent && Mathf.Abs(sample) > _silenceThreshold)
-                {
-                    isSilent = false;
-                }
-                short intSample = (short)(sample * rescaleFactor);
-                // Write in little-endian order.
-                audioBytes[2 * i] = (byte)(intSample & 0xFF);
-                audioBytes[2 * i + 1] = (byte)((intSample >> 8) & 0xFF);
-            }
-
-            // Write the converted audio data to the stream.
-            _reusableStream.Write(audioBytes, 0, audioBytes.Length);
-
-            // Write the WAV header at the beginning.
-            _reusableStream.Position = 0;
-            WriteWavHeader(_reusableStream, clip, audioBytes.Length);
-
-            // Return the complete byte array and the silence flag.
-            byte[] result = _reusableStream.ToArray();
-            return (result, isSilent);
-        }
-
-        private void WriteWavHeader(Stream stream, AudioClip clip, int dataLength)
-        {
-            // RIFF header
-            stream.Write(System.Text.Encoding.UTF8.GetBytes("RIFF"), 0, 4);
-            stream.Write(BitConverter.GetBytes((int)(stream.Length - 8)), 0, 4);
-            stream.Write(System.Text.Encoding.UTF8.GetBytes("WAVE"), 0, 4);
-
-            // fmt subchunk
-            stream.Write(System.Text.Encoding.UTF8.GetBytes("fmt "), 0, 4);
-            stream.Write(BitConverter.GetBytes(16), 0, 4); // Subchunk1Size (16 for PCM)
-            stream.Write(BitConverter.GetBytes((short)1), 0, 2); // AudioFormat (1 for PCM)
-            stream.Write(BitConverter.GetBytes((short)clip.channels), 0, 2);
-            stream.Write(BitConverter.GetBytes(clip.frequency), 0, 4);
-            stream.Write(BitConverter.GetBytes(clip.frequency * clip.channels * sizeof(short)), 0, 4);
-            stream.Write(BitConverter.GetBytes((short)(clip.channels * sizeof(short))), 0, 2);
-            stream.Write(BitConverter.GetBytes((short)16), 0, 2);
-
-            // data subchunk
-            stream.Write(System.Text.Encoding.UTF8.GetBytes("data"), 0, 4);
-            stream.Write(BitConverter.GetBytes(dataLength), 0, 4);
-        }
 
         #endregion
 
@@ -791,17 +685,33 @@ namespace _DL.PlaySafe
                 }
             }
 
-            byte[] opusBlob;
-            int packetCount;
+            // Encode on a worker thread so the Unity main thread doesn't freeze. Concentus's
+            // Encode is pure managed C# (~40-50% of native libopus speed per the maintainer)
+            // and a 10s buffer can take hundreds of ms — seconds on lower-end Android. The
+            // coroutine polls IsCompleted with `yield return null`, so frame ticks continue
+            // running while the encode is in flight.
+            Task<(byte[] blob, int packetCount)> encodeTask;
             try
             {
-                (opusBlob, packetCount) = PlaySafeOpusEncoder.Encode(encodeBuffer, encodeSampleCount, effectiveSampleRate);
+                encodeTask = PlaySafeOpusEncoder.EncodeAsync(encodeBuffer, encodeSampleCount, effectiveSampleRate);
             }
             catch (Exception e)
             {
-                LogError($"PlaySafeManager: Opus encode failed: {e.Message}");
+                LogError($"PlaySafeManager: Failed to start Opus encode task: {e.Message}");
                 yield break;
             }
+
+            while (!encodeTask.IsCompleted)
+                yield return null;
+
+            if (encodeTask.IsFaulted)
+            {
+                LogError($"PlaySafeManager: Opus encode failed: {encodeTask.Exception?.GetBaseException().Message}");
+                yield break;
+            }
+
+            byte[] opusBlob = encodeTask.Result.blob;
+            int packetCount = encodeTask.Result.packetCount;
 
             if (packetCount == 0)
             {
@@ -838,50 +748,6 @@ namespace _DL.PlaySafe
             {
                 yield return StartCoroutine(SendFormCoroutine(AddTokenToUrl(OpusModerationEndpoint), form));
             }
-        }
-
-        [Obsolete("WAV send path deprecated. Use SendOpusForAnalysisCoroutine. TODO: Delete after Opus path verified.")]
-        private IEnumerator SendAudioClipForAnalysisCoroutine(AudioClip clip)
-        {
-            if (clip == null)
-            {
-                LogError("PlaySafeManager: AudioClip is null.");
-                yield break;
-            }
-
-            var (wavFileBytes, isSilent) = AudioClipToFile(clip);
-            if (isSilent)
-            {
-                Log("PlaySafeManager: The AudioClip is silent. Skipping upload.");
-                yield break;
-            }
-            yield return WaitForEndOfFrame;
-            WWWForm form = SetupForm();
-
-            int audioDurationInSeconds = (int) Math.Max(1,clip.length);  
-            form.AddField("durationInSeconds", audioDurationInSeconds);
-            
-    
-            
-            form.AddBinaryData("audio", wavFileBytes, "audio.wav", "audio/wav");
-            yield return WaitForEndOfFrame;
-
-
-            if(_shouldRecordPlayTestNotes) {
-                form.AddField("playerUserId", GetTelemetry().UserId);
-
-                if(!string.IsNullOrEmpty(_playTestNotesId)) {
-                    form.AddField("playTestNotesId", _playTestNotesId);
-                }
-
-                Debug.Log("PlaySafeManager: Taking notes, sending audio for transcription");
-
-                string url = AddTokenToUrl(PlayTestDevBaseEndpoint + "/notes/transcripts");
-                yield return StartCoroutine(SendFormCoroutine(url, form));
-            }else { // Disable moderation when taking playtest notes
-                yield return StartCoroutine(SendFormCoroutine(AddTokenToUrl(VoiceModerationEndpoint), form));
-            }
-            
         }
 
         public IEnumerator SendTextForAnalysisCoroutine(string text)
@@ -1203,6 +1069,7 @@ namespace _DL.PlaySafe
             public string Method { get; set; } = "GET";
             public object RequestBody { get; set; } = null;
             public string SuccessMessage { get; set; } = null;
+            public int TimeoutSeconds { get; set; } = 15;
         }
 
         public class PlaySafeApiResponse<T>
@@ -1271,6 +1138,11 @@ namespace _DL.PlaySafe
 
                 // Set authorization header
                 www.SetRequestHeader("Authorization", "Bearer " + appKey);
+
+                if (options.TimeoutSeconds > 0)
+                {
+                    www.timeout = options.TimeoutSeconds;
+                }
 
                 // Send request
                 yield return www.SendWebRequest();
@@ -1546,9 +1418,12 @@ namespace _DL.PlaySafe
             int durationInMinutes,
             string playerUsername,
             int numberOfStrikes = 1,
-            string description = null)
+            string description = null,
+            int timeoutSeconds = 15)
         {
             string url = $"{PlaysafeBaseURL}{VoiceModerationEndpoint}/manual-action/player";
+
+            AudioEventRequestData telemetry = GetTelemetry();
 
             var requestBody = new
             {
@@ -1558,6 +1433,8 @@ namespace _DL.PlaySafe
                 durationInMinutes,
                 numberOfStrikes,
                 description,
+                actionByPlayerUserId = telemetry.UserId,
+                actionByPlayerUsername = telemetry.UserName,
                 source = ModerationSource.UNITY_SDK,
                 platform = ModerationPlatform.IN_GAME
             };
@@ -1566,7 +1443,8 @@ namespace _DL.PlaySafe
             {
                 Method = "POST",
                 RequestBody = requestBody,
-                SuccessMessage = "Manual action applied successfully"
+                SuccessMessage = "Manual action applied successfully",
+                TimeoutSeconds = timeoutSeconds
             });
 
             return response.Success ? response.Data : null;
