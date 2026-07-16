@@ -1468,10 +1468,14 @@ namespace _DL.PlaySafe
 
             string url = $"{PlaysafeBaseURL}{VoiceModerationEndpoint}/forgive";
 
+            AudioEventRequestData telemetry = GetTelemetry();
+
             var requestBody = new
             {
                 playerUserId,
-                shouldResetStrikes
+                shouldResetStrikes,
+                actionByPlayerUserId = telemetry.UserId,
+                actionByPlayerUsername = telemetry.UserName
             };
 
             var response = await SendApiRequest<ForgivePlayerResponse>(url, new ApiRequestOptions
