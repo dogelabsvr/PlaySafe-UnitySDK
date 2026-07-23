@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>PlaySafe.CompileCheck</AssemblyName>
+    <NoWarn>CS0169;CS0649</NoWarn>
+    <UnityManaged>/Applications/Unity/Hub/Editor/6000.3.10f1/Unity.app/Contents/Resources/Scripting/Managed/UnityEngine</UnityManaged>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(UnityManaged)/UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.AudioModule">
+      <HintPath>$(UnityManaged)/UnityEngine.AudioModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Concentus">
+      <HintPath>../../Runtime/Plugins/Concentus.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../../Runtime/PlaySafeEchoTypes.cs" />
+    <Compile Include="../../Runtime/PlaySafeFFT.cs" />
+    <Compile Include="../../Runtime/PlaySafeReferenceRing.cs" />
+    <Compile Include="../../Runtime/PlaySafeAudioResampler.cs" />
+    <Compile Include="../../Runtime/PlaySafeEchoAnalyzer.cs" />
+    <Compile Include="../../Runtime/PlaySafeEchoSpanTracker.cs" />
+    <Compile Include="../../Runtime/PlaySafeOutputTap.cs" />
+  </ItemGroup>
+</Project>
