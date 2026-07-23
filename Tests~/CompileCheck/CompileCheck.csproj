@@ -1,3 +1,8 @@
+<!-- Compiles the full runtime (Photon define excluded) against real UnityEngine
+     DLLs. NOTE: the referenced install is Unity 6000.x, NOT the package's 2021.3
+     floor - every API this SDK uses was manually audited as 2021.3-safe
+     (FindObjectsOfType, Volatile, Span, HideFlags, audio/scene events). If a
+     2021.3 editor is installed, point UnityManaged at it for a true floor check. -->
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>

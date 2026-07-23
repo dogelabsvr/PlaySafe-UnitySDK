@@ -63,6 +63,46 @@ namespace _DL.PlaySafe.Tests
         }
 
         [Test]
+        public void TwentyFourKhzMic_ResampledAndDetected()
+        {
+            var refSignal = SyntheticAudio.Speech(96000, 61, 0.5f); // 6 s @16k
+            const int delay = 800;
+            var mic16 = new float[64000]; // 4 s span starting at ref count 16000
+            for (int k = 0; k < 64000; k++) mic16[k] = 0.5f * refSignal[16000 + k - delay];
+            // Upsample 16k -> 24k by linear interpolation (factor 1.5)
+            var mic24 = new float[96000];
+            for (int j = 0; j < 96000; j++)
+            {
+                double pos = j * 2.0 / 3.0;
+                int i0 = (int)pos;
+                if (i0 >= 63999) i0 = 63998;
+                float frac = (float)(pos - i0);
+                mic24[j] = mic16[i0] * (1f - frac) + mic16[i0 + 1] * frac;
+            }
+            var spans = new[] { new EchoSpan(0, 96000, 16000, 80000) };
+            var ring = RingFrom(refSignal, 1 << 17);
+            var r = PlaySafeEchoAnalyzer.AnalyzeAsync(mic24, mic24.Length, 24000, 1, spans, ring, new EchoParams()).Result;
+            Assert.IsTrue(r.ReferenceUsable, Describe(r));
+            Assert.GreaterOrEqual(r.EchoProbability, 0.7f, Describe(r));
+        }
+
+        [Test]
+        public void StereoRawSpans_MappedOntoMonoBuffer()
+        {
+            var refSignal = SyntheticAudio.Speech(96000, 71, 0.5f); // 6 s
+            const int delay = 800;
+            var micMono = new float[64000]; // the POST-downmix mono buffer the manager passes
+            for (int k = 0; k < 64000; k++) micMono[k] = 0.5f * refSignal[16000 + k - delay];
+            // Spans carry RAW interleaved indices: stereo => twice the mono length
+            var spans = new[] { new EchoSpan(0, 128000, 16000, 80000) };
+            var ring = RingFrom(refSignal, 1 << 17);
+            var r = PlaySafeEchoAnalyzer.AnalyzeAsync(micMono, micMono.Length, 16000, 2, spans, ring, new EchoParams()).Result;
+            Assert.IsTrue(r.ReferenceUsable, Describe(r));
+            Assert.GreaterOrEqual(r.EchoProbability, 0.8f, Describe(r));
+            Assert.That(r.EstimatedDelayMs, Is.EqualTo(50f).Within(4f), Describe(r));
+        }
+
+        [Test]
         public void SpanOlderThanRingCapacity_Unusable()
         {
             var refSignal = SyntheticAudio.Speech(200000, 51, 0.5f);

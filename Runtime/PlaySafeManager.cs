@@ -220,7 +220,8 @@ namespace _DL.PlaySafe
 
             // Scene loads can destroy the AudioListener hosting the echo tap;
             // cheap cadence check re-attaches it without per-frame searches.
-            if (Time.unscaledTime - _lastTapCheck > 2f)
+            // Also re-attaches after remote config re-enables echo detection.
+            if (_echoDetectionEnabled && Time.unscaledTime - _lastTapCheck > 2f)
             {
                 _lastTapCheck = Time.unscaledTime;
                 EnsureOutputTap();
@@ -360,6 +361,14 @@ namespace _DL.PlaySafe
             return _referenceRing != null ? _referenceRing.WriteCount : 0;
         }
 
+        private static void ObserveEchoTaskFault(Task<EchoAnalysisResult> echoTask)
+        {
+            if (echoTask != null && echoTask.IsFaulted)
+            {
+                _ = echoTask.Exception; // touch so it never escalates to UnobservedTaskException
+            }
+        }
+
         private void OnDestroy()
         {
             AudioSettings.OnAudioConfigurationChanged -= OnAudioConfigurationChanged;
@@ -394,6 +403,8 @@ namespace _DL.PlaySafe
         // Advisory only: PlaySafe receives Photon's post-DSP frames, so a game
         // running AGC without AEC amplifies faint headset bleed to speech level
         // before it ever reaches moderation. Settings are never modified here.
+        // DSP members are read via reflection so a Photon Voice version that
+        // renames one degrades to "skip that advisory" instead of failing.
         private void CheckPhotonDspEchoRisk()
         {
             try
@@ -401,8 +412,13 @@ namespace _DL.PlaySafe
                 var dsp = FindObjectOfType<WebRtcAudioDsp>();
                 if (dsp == null) return;
 
-                bool aec = dsp.AEC || dsp.AECMobile;
-                if (dsp.AGC && !aec)
+                bool? agcOn = GetDspBool(dsp, "AGC");
+                bool? aecProp = GetDspBool(dsp, "AEC");
+                bool? aecMobileProp = GetDspBool(dsp, "AECMobile");
+                bool aecKnown = aecProp.HasValue || aecMobileProp.HasValue;
+                bool aecOn = (aecProp ?? false) || (aecMobileProp ?? false);
+
+                if (agcOn == true && aecKnown && !aecOn)
                 {
                     LogWarning(
                         "PlaySafe: Photon WebRtcAudioDsp has AGC enabled but echo cancellation (AEC/AECMobile) disabled. " +
@@ -410,7 +426,9 @@ namespace _DL.PlaySafe
                         "and AGC amplifies that bleed to speech level, which can be transcribed as if this player said it. " +
                         "Recommended: enable AECMobile with ReverseStreamDelayMs around 120. PlaySafe does not modify your DSP settings.");
                 }
-                if (aec && dsp.ReverseStreamDelayMs <= 1)
+
+                int? reverseDelayMs = GetDspInt(dsp, "ReverseStreamDelayMs");
+                if (aecOn && reverseDelayMs.HasValue && reverseDelayMs.Value <= 1)
                 {
                     LogWarning("PlaySafe: Photon AEC is enabled but ReverseStreamDelayMs is ~0; around 120 ms is typical on mobile/Quest.");
                 }
@@ -423,6 +441,20 @@ namespace _DL.PlaySafe
             {
                 LogException(e);
             }
+        }
+
+        private static bool? GetDspBool(object dsp, string propertyName)
+        {
+            var property = dsp.GetType().GetProperty(propertyName);
+            if (property == null || property.PropertyType != typeof(bool)) return null;
+            return (bool)property.GetValue(dsp);
+        }
+
+        private static int? GetDspInt(object dsp, string propertyName)
+        {
+            var property = dsp.GetType().GetProperty(propertyName);
+            if (property == null || property.PropertyType != typeof(int)) return null;
+            return (int)property.GetValue(dsp);
         }
         #endif
 
@@ -528,7 +560,10 @@ namespace _DL.PlaySafe
             _pauseTimer.Reset();
 
             _echoSpans.Reset();
-            _echoSpans.BeginSpan(_sampleIndex, RefRingCount());
+            if (_echoDetectionEnabled)
+            {
+                _echoSpans.BeginSpan(_sampleIndex, RefRingCount());
+            }
 
             Log($"[StateMachine] Recording started - mode: {(isUsingExistingUnityMic ? "Photon" : "UnityMic")}, sampleRate: {sampleRate}, channels: {channelCount}" +
                 (_shouldRecordPlayTestNotes ? ", playtest notes: ON" : ""));
@@ -593,7 +628,10 @@ namespace _DL.PlaySafe
             }
             // For Photon path: AppendToBuffer will resume appending since _isPaused is now false
 
-            _echoSpans.BeginSpan(_sampleIndex, RefRingCount());
+            if (_echoDetectionEnabled)
+            {
+                _echoSpans.BeginSpan(_sampleIndex, RefRingCount());
+            }
 
             Log($"[StateMachine] Recording RESUMED - continuing from {GetAccumulatedAudioDuration():F1}s, samples in buffer: {_sampleIndex}");
         }
@@ -867,6 +905,7 @@ namespace _DL.PlaySafe
             if (encodeTask.IsFaulted)
             {
                 LogError($"PlaySafeManager: Opus encode failed: {encodeTask.Exception?.GetBaseException().Message}");
+                ObserveEchoTaskFault(echoTask);
                 yield break;
             }
 
@@ -876,6 +915,7 @@ namespace _DL.PlaySafe
             if (packetCount == 0)
             {
                 LogError("PlaySafeManager: Opus encoder produced 0 packets.");
+                ObserveEchoTaskFault(echoTask);
                 yield break;
             }
 
@@ -1447,6 +1487,15 @@ namespace _DL.PlaySafe
                     _echoAnnotateOnly = config.EchoAnnotateOnly ?? true;
                     _echoDropThreshold = config.EchoDropThreshold ?? 0.85f;
                     Log($"Echo detection: enabled={_echoDetectionEnabled}, annotateOnly={_echoAnnotateOnly}, dropThreshold={_echoDropThreshold:F2}");
+
+                    // Kill switch means fully off: detach the tap so the audio
+                    // thread does zero echo work and the scene stays untouched.
+                    if (!_echoDetectionEnabled && _outputTap != null)
+                    {
+                        Destroy(_outputTap);
+                        _outputTap = null;
+                        _echoSpans.Reset();
+                    }
                 }
                 else
                 {
