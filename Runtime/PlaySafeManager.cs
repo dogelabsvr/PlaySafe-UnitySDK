@@ -386,6 +386,42 @@ namespace _DL.PlaySafe
 
                 voice.AddPostProcessor(_photonPlaySafeProcessor);
                 _photonProcessorAttached = true;
+
+                CheckPhotonDspEchoRisk();
+            }
+        }
+
+        // Advisory only: PlaySafe receives Photon's post-DSP frames, so a game
+        // running AGC without AEC amplifies faint headset bleed to speech level
+        // before it ever reaches moderation. Settings are never modified here.
+        private void CheckPhotonDspEchoRisk()
+        {
+            try
+            {
+                var dsp = FindObjectOfType<WebRtcAudioDsp>();
+                if (dsp == null) return;
+
+                bool aec = dsp.AEC || dsp.AECMobile;
+                if (dsp.AGC && !aec)
+                {
+                    LogWarning(
+                        "PlaySafe: Photon WebRtcAudioDsp has AGC enabled but echo cancellation (AEC/AECMobile) disabled. " +
+                        "On open-ear headsets (e.g. Meta Quest) other players' voices bleed from the speakers into the microphone, " +
+                        "and AGC amplifies that bleed to speech level, which can be transcribed as if this player said it. " +
+                        "Recommended: enable AECMobile with ReverseStreamDelayMs around 120. PlaySafe does not modify your DSP settings.");
+                }
+                if (aec && dsp.ReverseStreamDelayMs <= 1)
+                {
+                    LogWarning("PlaySafe: Photon AEC is enabled but ReverseStreamDelayMs is ~0; around 120 ms is typical on mobile/Quest.");
+                }
+                if (sampleRate == 48000)
+                {
+                    LogWarning("PlaySafe: Photon Recorder sampling rate is 48000 Hz; 24000/16000 are safer on Quest (48 kHz AEC crash reports exist).");
+                }
+            }
+            catch (Exception e)
+            {
+                LogException(e);
             }
         }
         #endif
