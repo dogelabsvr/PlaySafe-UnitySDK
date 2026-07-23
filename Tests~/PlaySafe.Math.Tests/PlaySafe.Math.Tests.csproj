@@ -20,5 +20,6 @@
   <ItemGroup>
     <Compile Include="../../Runtime/PlaySafeEchoTypes.cs" Link="src/PlaySafeEchoTypes.cs" />
     <Compile Include="../../Runtime/PlaySafeFFT.cs" Link="src/PlaySafeFFT.cs" />
+    <Compile Include="../../Runtime/PlaySafeReferenceRing.cs" Link="src/PlaySafeReferenceRing.cs" />
   </ItemGroup>
 </Project>
