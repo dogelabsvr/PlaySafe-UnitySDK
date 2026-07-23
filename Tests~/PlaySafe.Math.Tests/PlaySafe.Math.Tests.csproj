@@ -17,4 +17,8 @@
       <HintPath>../../Runtime/Plugins/Concentus.dll</HintPath>
     </Reference>
   </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../../Runtime/PlaySafeEchoTypes.cs" Link="src/PlaySafeEchoTypes.cs" />
+    <Compile Include="../../Runtime/PlaySafeFFT.cs" Link="src/PlaySafeFFT.cs" />
+  </ItemGroup>
 </Project>
