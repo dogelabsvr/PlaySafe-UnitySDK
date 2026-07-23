@@ -11,6 +11,7 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.6.0" />
     <PackageReference Include="NUnit" Version="3.13.3" />
     <PackageReference Include="NUnit3TestAdapter" Version="4.5.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="Concentus">
@@ -24,5 +25,6 @@
     <Compile Include="../../Runtime/PlaySafeAudioResampler.cs" Link="src/PlaySafeAudioResampler.cs" />
     <Compile Include="../../Runtime/PlaySafeEchoAnalyzer.cs" Link="src/PlaySafeEchoAnalyzer.cs" />
     <Compile Include="../../Runtime/PlaySafeEchoSpanTracker.cs" Link="src/PlaySafeEchoSpanTracker.cs" />
+    <Compile Include="../../Runtime/PlaySafeManagerResponse.cs" Link="src/PlaySafeManagerResponse.cs" />
   </ItemGroup>
 </Project>

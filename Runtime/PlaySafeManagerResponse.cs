@@ -151,9 +151,20 @@ namespace _DL.PlaySafe
 
         [JsonProperty("playerStatsExpiryInDays")]
         public int PlayerStatsExpiryInDays { get; set; }
-        
+
         [JsonProperty("sessionPulseIntervalSeconds")]
         public int SessionPulseIntervalSeconds { get; set; }
+
+        // Nullable so a backend without these fields is distinguishable from an
+        // explicit value; absent fields fall back to client-side defaults.
+        [JsonProperty("echoDetectionEnabled")]
+        public bool? EchoDetectionEnabled { get; set; }
+
+        [JsonProperty("echoAnnotateOnly")]
+        public bool? EchoAnnotateOnly { get; set; }
+
+        [JsonProperty("echoDropThreshold")]
+        public float? EchoDropThreshold { get; set; }
     }
 
     //

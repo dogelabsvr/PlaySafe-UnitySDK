@@ -1404,6 +1404,13 @@ namespace _DL.PlaySafe
                     
                     _silenceThreshold = config.AudioSilenceThreshold;
                     Log($"Silence Threshold: {_silenceThreshold}");
+
+                    // Absent fields keep the defaults: detection on, annotate-only
+                    // shadow mode (never drops until the backend flips it remotely).
+                    _echoDetectionEnabled = config.EchoDetectionEnabled ?? true;
+                    _echoAnnotateOnly = config.EchoAnnotateOnly ?? true;
+                    _echoDropThreshold = config.EchoDropThreshold ?? 0.85f;
+                    Log($"Echo detection: enabled={_echoDetectionEnabled}, annotateOnly={_echoAnnotateOnly}, dropThreshold={_echoDropThreshold:F2}");
                 }
                 else
                 {
