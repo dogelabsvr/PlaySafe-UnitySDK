@@ -4,9 +4,13 @@
     <LangVersion>9.0</LangVersion>
     <Nullable>disable</Nullable>
     <AssemblyName>PlaySafe.CompileCheck</AssemblyName>
-    <NoWarn>CS0169;CS0649</NoWarn>
+    <NoWarn>CS0169;CS0649;CS8632</NoWarn>
     <UnityManaged>/Applications/Unity/Hub/Editor/6000.3.10f1/Unity.app/Contents/Resources/Scripting/Managed/UnityEngine</UnityManaged>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- JetBrains annotations come from UnityEngine.CoreModule, matching Unity -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
   <ItemGroup>
     <Reference Include="UnityEngine.CoreModule">
       <HintPath>$(UnityManaged)/UnityEngine.CoreModule.dll</HintPath>
@@ -14,6 +18,14 @@
     </Reference>
     <Reference Include="UnityEngine.AudioModule">
       <HintPath>$(UnityManaged)/UnityEngine.AudioModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UnityWebRequestModule">
+      <HintPath>$(UnityManaged)/UnityEngine.UnityWebRequestModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.AndroidJNIModule">
+      <HintPath>$(UnityManaged)/UnityEngine.AndroidJNIModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="Concentus">
@@ -29,5 +41,9 @@
     <Compile Include="../../Runtime/PlaySafeEchoAnalyzer.cs" />
     <Compile Include="../../Runtime/PlaySafeEchoSpanTracker.cs" />
     <Compile Include="../../Runtime/PlaySafeOutputTap.cs" />
+    <Compile Include="../../Runtime/PlaySafeManager.cs" />
+    <Compile Include="../../Runtime/PlaySafeManagerResponse.cs" />
+    <Compile Include="../../Runtime/PlaySafeOpusEncoder.cs" />
+    <Compile Include="../../Runtime/PhotonPlaySafeProcessor.cs" />
   </ItemGroup>
 </Project>

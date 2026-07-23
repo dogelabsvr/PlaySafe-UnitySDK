@@ -5,10 +5,6 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
-using Unity.Collections;
-using Unity.Collections.LowLevel.Unsafe;
-using Unity.Jobs;
-using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.Android;
 using UnityEngine.Networking;
@@ -107,6 +103,7 @@ namespace _DL.PlaySafe
             }
             StartCoroutine(GetProductAIConfig());
             _lastRecording.Restart();
+            InitializeEchoDetection();
         }
 
         #endregion
@@ -136,6 +133,10 @@ namespace _DL.PlaySafe
         private bool shouldRecord = false;
         [SerializeField, Tooltip("Number of microphone devices detected.")]
         private int microphoneDevicesCount = 0;
+        [SerializeField, Tooltip("Clips dropped because they were detected as headset echo.")]
+        private int echoClipsDropped = 0;
+        [SerializeField, Tooltip("Echo probability of the last analyzed clip (-1 = none/unusable).")]
+        private float lastEchoProbability = -1f;
 
         #endregion
 
@@ -166,6 +167,19 @@ namespace _DL.PlaySafe
         private const int MinimumAudioDurationSeconds = 1;
         private const string OpusModerationEndpoint = "/products/moderation/opus";
         private const int OpusSampleRate = 16000;
+
+        // Echo detection: compares each clip against what the headset played so
+        // speaker bleed-through is not moderated as the local player's speech.
+        private PlaySafeReferenceRing _referenceRing;
+        private PlaySafeOutputTap _outputTap;
+        private readonly PlaySafeEchoSpanTracker _echoSpans = new PlaySafeEchoSpanTracker();
+        private readonly EchoParams _echoParams = new EchoParams();
+        private bool _echoDetectionEnabled = true;   // remote config may override; absent => enabled
+        private bool _echoAnnotateOnly = true;       // shadow mode: annotate uploads, never drop
+        private float _echoDropThreshold = 0.85f;
+        private const float EchoLocalSpeechDropCeiling = 0.15f;
+        private const int ReferenceRingCapacity = 1 << 20; // ~65s @16kHz mono, 2 MiB
+        private float _lastTapCheck;
 
         #endregion
 
@@ -202,6 +216,14 @@ namespace _DL.PlaySafe
             {
                 Debug.Log("PlaySafeManager is not initialized");
                 return;
+            }
+
+            // Scene loads can destroy the AudioListener hosting the echo tap;
+            // cheap cadence check re-attaches it without per-frame searches.
+            if (Time.unscaledTime - _lastTapCheck > 2f)
+            {
+                _lastTapCheck = Time.unscaledTime;
+                EnsureOutputTap();
             }
 
             if (!HasMicrophonePermission())
@@ -277,6 +299,74 @@ namespace _DL.PlaySafe
                 {
                     selectedMicrophone = GetDefaultMicrophone();
                 }
+            }
+        }
+
+        #endregion
+
+        #region Echo Detection
+
+        private void InitializeEchoDetection()
+        {
+            _referenceRing = new PlaySafeReferenceRing(ReferenceRingCapacity);
+            EnsureOutputTap();
+            AudioSettings.OnAudioConfigurationChanged += OnAudioConfigurationChanged;
+            UnityEngine.SceneManagement.SceneManager.activeSceneChanged += OnActiveSceneChanged;
+        }
+
+        private void OnActiveSceneChanged(UnityEngine.SceneManagement.Scene from, UnityEngine.SceneManagement.Scene to)
+        {
+            EnsureOutputTap();
+        }
+
+        private void OnAudioConfigurationChanged(bool deviceWasChanged)
+        {
+            // The output rate may have changed, so old ring positions no longer
+            // align with new audio; start a fresh ring and drop current spans.
+            _referenceRing = new PlaySafeReferenceRing(ReferenceRingCapacity);
+            _echoSpans.Reset();
+            if (_outputTap != null)
+            {
+                _outputTap.Bind(_referenceRing, AudioSettings.outputSampleRate);
+            }
+        }
+
+        private void EnsureOutputTap()
+        {
+            if (_outputTap != null || _referenceRing == null) return;
+
+            AudioListener listener = null;
+            AudioListener[] listeners = FindObjectsOfType<AudioListener>();
+            for (int i = 0; i < listeners.Length; i++)
+            {
+                if (!listeners[i].isActiveAndEnabled) continue;
+                if (listener != null)
+                {
+                    LogWarning("PlaySafeManager: Multiple enabled AudioListeners found; echo reference uses the first.");
+                    break;
+                }
+                listener = listeners[i];
+            }
+            if (listener == null) return;
+
+            _outputTap = listener.gameObject.AddComponent<PlaySafeOutputTap>();
+            _outputTap.hideFlags = HideFlags.HideInInspector;
+            _outputTap.Bind(_referenceRing, AudioSettings.outputSampleRate);
+            Log($"PlaySafeManager: Echo reference tap attached to '{listener.gameObject.name}' at {AudioSettings.outputSampleRate}Hz");
+        }
+
+        private long RefRingCount()
+        {
+            return _referenceRing != null ? _referenceRing.WriteCount : 0;
+        }
+
+        private void OnDestroy()
+        {
+            AudioSettings.OnAudioConfigurationChanged -= OnAudioConfigurationChanged;
+            UnityEngine.SceneManagement.SceneManager.activeSceneChanged -= OnActiveSceneChanged;
+            if (_outputTap != null)
+            {
+                Destroy(_outputTap);
             }
         }
 
@@ -401,6 +491,9 @@ namespace _DL.PlaySafe
             _activeRecordingTime.Restart();
             _pauseTimer.Reset();
 
+            _echoSpans.Reset();
+            _echoSpans.BeginSpan(_sampleIndex, RefRingCount());
+
             Log($"[StateMachine] Recording started - mode: {(isUsingExistingUnityMic ? "Photon" : "UnityMic")}, sampleRate: {sampleRate}, channels: {channelCount}" +
                 (_shouldRecordPlayTestNotes ? ", playtest notes: ON" : ""));
         }
@@ -441,6 +534,8 @@ namespace _DL.PlaySafe
             }
             // For Photon path: AppendToBuffer will check _isPaused and skip appending
 
+            _echoSpans.EndSpan(_sampleIndex, RefRingCount());
+
             Log($"[StateMachine] Recording PAUSED - accumulated audio: {GetAccumulatedAudioDuration():F1}s, samples in buffer: {_sampleIndex}");
         }
 
@@ -461,6 +556,8 @@ namespace _DL.PlaySafe
                 Log("[StateMachine] ResumeRecording: Unity Microphone restarted");
             }
             // For Photon path: AppendToBuffer will resume appending since _isPaused is now false
+
+            _echoSpans.BeginSpan(_sampleIndex, RefRingCount());
 
             Log($"[StateMachine] Recording RESUMED - continuing from {GetAccumulatedAudioDuration():F1}s, samples in buffer: {_sampleIndex}");
         }
@@ -527,6 +624,8 @@ namespace _DL.PlaySafe
 
                 Microphone.End(mic);
             }
+
+            _echoSpans.EndSpan(_sampleIndex, RefRingCount());
 
             if (shouldSendAudioClip && _hasFocus)
             {
@@ -685,6 +784,31 @@ namespace _DL.PlaySafe
                 }
             }
 
+            // Echo analysis runs concurrently with the Opus encode on the thread
+            // pool. Spans must be snapshotted before the first yield: a new
+            // recording window could Reset the tracker on a later frame.
+            Task<EchoAnalysisResult> echoTask = null;
+            if (_echoDetectionEnabled && _referenceRing != null)
+            {
+                EchoSpan[] echoSpansSnapshot = _echoSpans.Snapshot();
+                if (echoSpansSnapshot.Length > 0)
+                {
+                    try
+                    {
+                        // encodeBuffer is mono, but span indices are raw interleaved
+                        // _sampleIndex values: channelCount maps them onto the mono buffer.
+                        echoTask = PlaySafeEchoAnalyzer.AnalyzeAsync(
+                            encodeBuffer, encodeSampleCount, effectiveSampleRate, channelCount,
+                            echoSpansSnapshot, _referenceRing, _echoParams);
+                    }
+                    catch (Exception e)
+                    {
+                        LogWarning($"PlaySafeManager: Failed to start echo analysis: {e.Message}");
+                        echoTask = null;
+                    }
+                }
+            }
+
             // Encode on a worker thread so the Unity main thread doesn't freeze. Concentus's
             // Encode is pure managed C# (~40-50% of native libopus speed per the maintainer)
             // and a 10s buffer can take hundreds of ms — seconds on lower-end Android. The
@@ -701,7 +825,7 @@ namespace _DL.PlaySafe
                 yield break;
             }
 
-            while (!encodeTask.IsCompleted)
+            while (!encodeTask.IsCompleted || (echoTask != null && !echoTask.IsCompleted))
                 yield return null;
 
             if (encodeTask.IsFaulted)
@@ -719,6 +843,36 @@ namespace _DL.PlaySafe
                 yield break;
             }
 
+            // Echo verdict: drop clips that are essentially a delayed copy of the
+            // headset output (the false-ban case), otherwise annotate the upload.
+            // The probability is one-directional evidence: when the reference is
+            // unusable (no listener, voice outside Unity's mixer) the field is
+            // omitted entirely rather than claiming "no echo".
+            EchoAnalysisResult echo = default;
+            bool echoComputed = false;
+            if (echoTask != null && echoTask.Status == TaskStatus.RanToCompletion)
+            {
+                echo = echoTask.Result;
+                echoComputed = true;
+                lastEchoProbability = echo.ReferenceUsable ? echo.EchoProbability : -1f;
+                Log($"PlaySafeManager: Echo analysis p={echo.EchoProbability:F2} usable={echo.ReferenceUsable} " +
+                    $"delay={echo.EstimatedDelayMs:F0}ms ncc={echo.MeanNcc:F2} lag={echo.LagStabilityScore:F2} " +
+                    $"peak={echo.PeakConfidence:F2} local={echo.LocalSpeechEvidence:F2} cov={echo.Coverage:F2} refRms={echo.ReferenceRms:F3}");
+
+                if (echo.ReferenceUsable && !_echoAnnotateOnly
+                    && echo.EchoProbability >= _echoDropThreshold
+                    && echo.LocalSpeechEvidence <= EchoLocalSpeechDropCeiling)
+                {
+                    echoClipsDropped++;
+                    Log($"PlaySafeManager: Clip classified as headset echo (p={echo.EchoProbability:F2}). Skipping Opus upload.");
+                    yield break;
+                }
+            }
+            else if (echoTask != null && echoTask.IsFaulted)
+            {
+                LogWarning($"PlaySafeManager: Echo analysis failed: {echoTask.Exception?.GetBaseException().Message}");
+            }
+
             yield return WaitForEndOfFrame;
 
             WWWForm form = SetupForm();
@@ -727,6 +881,11 @@ namespace _DL.PlaySafe
             form.AddField("sampleRate", effectiveSampleRate);
             form.AddField("channels", 1);
             form.AddField("estimatedDuration", Math.Max(1, encodeSampleCount / effectiveSampleRate));
+            if (echoComputed && echo.ReferenceUsable)
+            {
+                form.AddField("echoProbability",
+                    echo.EchoProbability.ToString("F2", System.Globalization.CultureInfo.InvariantCulture));
+            }
 
             yield return WaitForEndOfFrame;
 
