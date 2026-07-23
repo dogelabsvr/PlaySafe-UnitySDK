@@ -70,7 +70,8 @@ namespace _DL.PlaySafe
         internal float MinReferenceRms = 0.005f;
         internal float PeakConfLo = 2f;
         internal float PeakConfHi = 8f;
-        internal float NccLo = 0.15f;
-        internal float NccHi = 0.55f;
+        internal float NccLo = 0.3f;
+        internal float NccHi = 0.75f;
+        internal float NccContestFloor = 0.35f;
     }
 }

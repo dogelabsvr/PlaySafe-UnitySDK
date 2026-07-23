@@ -22,5 +22,6 @@
     <Compile Include="../../Runtime/PlaySafeFFT.cs" Link="src/PlaySafeFFT.cs" />
     <Compile Include="../../Runtime/PlaySafeReferenceRing.cs" Link="src/PlaySafeReferenceRing.cs" />
     <Compile Include="../../Runtime/PlaySafeAudioResampler.cs" Link="src/PlaySafeAudioResampler.cs" />
+    <Compile Include="../../Runtime/PlaySafeEchoAnalyzer.cs" Link="src/PlaySafeEchoAnalyzer.cs" />
   </ItemGroup>
 </Project>
