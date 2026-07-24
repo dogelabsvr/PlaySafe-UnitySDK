@@ -1,0 +1,54 @@
+<!-- Compiles the full runtime (Photon define excluded) against real UnityEngine
+     DLLs. NOTE: the referenced install is Unity 6000.x, NOT the package's 2021.3
+     floor - every API this SDK uses was manually audited as 2021.3-safe
+     (FindObjectsOfType, Volatile, Span, HideFlags, audio/scene events). If a
+     2021.3 editor is installed, point UnityManaged at it for a true floor check. -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>PlaySafe.CompileCheck</AssemblyName>
+    <NoWarn>CS0169;CS0649;CS8632</NoWarn>
+    <UnityManaged>/Applications/Unity/Hub/Editor/6000.3.10f1/Unity.app/Contents/Resources/Scripting/Managed/UnityEngine</UnityManaged>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- JetBrains annotations come from UnityEngine.CoreModule, matching Unity -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(UnityManaged)/UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.AudioModule">
+      <HintPath>$(UnityManaged)/UnityEngine.AudioModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UnityWebRequestModule">
+      <HintPath>$(UnityManaged)/UnityEngine.UnityWebRequestModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.AndroidJNIModule">
+      <HintPath>$(UnityManaged)/UnityEngine.AndroidJNIModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Concentus">
+      <HintPath>../../Runtime/Plugins/Concentus.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../../Runtime/PlaySafeEchoTypes.cs" />
+    <Compile Include="../../Runtime/PlaySafeFFT.cs" />
+    <Compile Include="../../Runtime/PlaySafeReferenceRing.cs" />
+    <Compile Include="../../Runtime/PlaySafeAudioResampler.cs" />
+    <Compile Include="../../Runtime/PlaySafeEchoAnalyzer.cs" />
+    <Compile Include="../../Runtime/PlaySafeEchoSpanTracker.cs" />
+    <Compile Include="../../Runtime/PlaySafeOutputTap.cs" />
+    <Compile Include="../../Runtime/PlaySafeManager.cs" />
+    <Compile Include="../../Runtime/PlaySafeManagerResponse.cs" />
+    <Compile Include="../../Runtime/PlaySafeOpusEncoder.cs" />
+    <Compile Include="../../Runtime/PhotonPlaySafeProcessor.cs" />
+  </ItemGroup>
+</Project>

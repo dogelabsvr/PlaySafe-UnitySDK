@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net7.0</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <IsPackable>false</IsPackable>
+    <Nullable>disable</Nullable>
+    <AssemblyName>PlaySafe.Math.Tests</AssemblyName>
+    <RootNamespace>_DL.PlaySafe.Tests</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.6.0" />
+    <PackageReference Include="NUnit" Version="3.13.3" />
+    <PackageReference Include="NUnit3TestAdapter" Version="4.5.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="Concentus">
+      <HintPath>../../Runtime/Plugins/Concentus.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../../Runtime/PlaySafeEchoTypes.cs" Link="src/PlaySafeEchoTypes.cs" />
+    <Compile Include="../../Runtime/PlaySafeFFT.cs" Link="src/PlaySafeFFT.cs" />
+    <Compile Include="../../Runtime/PlaySafeReferenceRing.cs" Link="src/PlaySafeReferenceRing.cs" />
+    <Compile Include="../../Runtime/PlaySafeAudioResampler.cs" Link="src/PlaySafeAudioResampler.cs" />
+    <Compile Include="../../Runtime/PlaySafeEchoAnalyzer.cs" Link="src/PlaySafeEchoAnalyzer.cs" />
+    <Compile Include="../../Runtime/PlaySafeEchoSpanTracker.cs" Link="src/PlaySafeEchoSpanTracker.cs" />
+    <Compile Include="../../Runtime/PlaySafeManagerResponse.cs" Link="src/PlaySafeManagerResponse.cs" />
+  </ItemGroup>
+</Project>
