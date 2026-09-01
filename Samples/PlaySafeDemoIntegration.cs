@@ -31,6 +31,11 @@ public class PlaySafeDemoIntegration : MonoBehaviour
         //     var vote = await playSafeManager.CastVoteAsync(poll.Data.Id, "yes");
         //     var results = await playSafeManager.GetPollResultsAsync(poll.Data.Id);
         // }
+
+        // Example: Force moderation on for higher-toxicity contexts, overruling remote-config
+        // sampling. Read fresh every tick, so update it whenever your own match state changes -
+        // no restart needed. true = always record, false = never record, null = default sampling.
+        // playSafeManager.ShouldModerateOverride = IsCompetitiveMatch() ? true : (bool?)null;
     }
 
     private void OnPlaySafeInitialized(PlaySafeManager playSafeManager)
