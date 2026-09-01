@@ -219,5 +219,76 @@ namespace _DL.PlaySafe.Tests
             Assert.IsTrue(second);
             Assert.IsFalse(third);
         }
+
+        [Test]
+        public void OverrideFalse_OutranksPlayTestNotes()
+        {
+            // Playtest notes alone would return true (see PlayTestNotes_NotRecording_ReturnsCanRecord);
+            // the override still wins.
+            bool result = PlaySafeRecordingDecision.ShouldRecord(
+                overrideValue: false,
+                isEditorDebugRecord: false,
+                shouldRecordPlayTestNotes: true,
+                isRecording: false,
+                secondsSinceLastRecording: 0,
+                recordingIntermissionSeconds: int.MaxValue,
+                canRecord: Unreachable());
+            Assert.IsFalse(result);
+        }
+
+        [Test]
+        public void OverrideTrue_WhileAlreadyRecording_StillReturnsTrue()
+        {
+            // ShouldRecord() returning true here does not by itself start a second recording:
+            // PlaySafeManager.Update() only calls StartRecording() when ShouldRecord() && !_isRecording,
+            // so that pre-existing outer guard - unchanged by this decision - is what prevents a
+            // double-start. This test only pins down what the decision itself returns.
+            bool result = PlaySafeRecordingDecision.ShouldRecord(
+                overrideValue: true,
+                isEditorDebugRecord: false,
+                shouldRecordPlayTestNotes: false,
+                isRecording: true,
+                secondsSinceLastRecording: 0,
+                recordingIntermissionSeconds: int.MaxValue,
+                canRecord: CanRecord(true));
+            Assert.IsTrue(result);
+        }
+
+        [Test]
+        public void OverrideTrue_InEditorWithDebugRecordOff_StillReturnsTrue()
+        {
+            bool result = PlaySafeRecordingDecision.ShouldRecord(
+                overrideValue: true,
+                isEditorDebugRecord: false, // Application.isEditor && debugEnableRecord == false
+                shouldRecordPlayTestNotes: false,
+                isRecording: false,
+                secondsSinceLastRecording: 0,
+                recordingIntermissionSeconds: int.MaxValue,
+                canRecord: CanRecord(true));
+            Assert.IsTrue(result);
+        }
+
+        [Test]
+        public void Override_FlippingWhileRecording_TakesEffectImmediately()
+        {
+            bool whenTrue = PlaySafeRecordingDecision.ShouldRecord(
+                overrideValue: true,
+                isEditorDebugRecord: false,
+                shouldRecordPlayTestNotes: false,
+                isRecording: true,
+                secondsSinceLastRecording: 0,
+                recordingIntermissionSeconds: 60,
+                canRecord: CanRecord(true));
+            bool whenFalse = PlaySafeRecordingDecision.ShouldRecord(
+                overrideValue: false,
+                isEditorDebugRecord: false,
+                shouldRecordPlayTestNotes: false,
+                isRecording: true,
+                secondsSinceLastRecording: 0,
+                recordingIntermissionSeconds: 60,
+                canRecord: CanRecord(true));
+            Assert.IsTrue(whenTrue);
+            Assert.IsFalse(whenFalse);
+        }
     }
 }
