@@ -332,18 +332,15 @@ namespace _DL.PlaySafe
             // Don't start recording until we've fetched the notes status at least once
             // if (!_shouldRecordNotesFetched)
             //     return false;
-                
-            if (Application.isEditor && debugEnableRecord && !_isRecording)
-                return true;
 
-            // For continuous notes recording - start immediately when not recording
-            if (_shouldRecordPlayTestNotes && !_isRecording)
-                return CanRecord();
             var totalSeconds = _lastRecording.Elapsed.TotalSeconds;
-            bool timeHasElapsed =   totalSeconds > _recordingIntermissionSeconds;
-            return (!_isRecording || _shouldRecordPlayTestNotes) &&timeHasElapsed
-                    &&
-                   CanRecord();
+            return PlaySafeRecordingDecision.ShouldRecord(
+                isEditorDebugRecord: Application.isEditor && debugEnableRecord,
+                shouldRecordPlayTestNotes: _shouldRecordPlayTestNotes,
+                isRecording: _isRecording,
+                secondsSinceLastRecording: totalSeconds,
+                recordingIntermissionSeconds: _recordingIntermissionSeconds,
+                canRecord: CanRecord);
         }
 
         /// <summary>
