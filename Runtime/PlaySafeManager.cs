@@ -47,9 +47,12 @@ namespace _DL.PlaySafe
         public Func<bool> CanRecord { private get; set; }
 
         /// <summary>
-        /// Business-logic override for whether recording should happen, read fresh on every
+        /// Business-logic override for whether a NEW recording should start, read fresh on every
         /// ShouldRecord() tick so a change takes effect on the next tick with no restart needed.
-        /// True always records; false never records; null (default) defers to remote-config sampling.
+        /// True forces recording regardless of samplingRate / smart sampling, but CanRecord still
+        /// gates it (mute/consent/lobby state); false never records, regardless of remote config;
+        /// null (default) defers to remote-config sampling. Does not interrupt a recording already
+        /// in progress - see CanRecord for the delegate that does.
         /// </summary>
         public bool? ShouldModerateOverride { get; set; }
 

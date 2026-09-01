@@ -18,9 +18,11 @@ namespace _DL.PlaySafe
             Func<bool> canRecord)
         {
             // The business-logic override outranks every other early-out here, including playtest
-            // notes - it's the most explicit signal a caller can give, so it wins unconditionally.
+            // notes and the samplingRate/remote-config derivation - but it does not outrank the
+            // caller's own CanRecord permission gate (mute/consent/lobby state). False short-circuits
+            // canRecord entirely since "never record" is unconditional either way.
             if (overrideValue.HasValue)
-                return overrideValue.Value;
+                return overrideValue.Value && canRecord();
 
             if (isEditorDebugRecord && !isRecording)
                 return true;

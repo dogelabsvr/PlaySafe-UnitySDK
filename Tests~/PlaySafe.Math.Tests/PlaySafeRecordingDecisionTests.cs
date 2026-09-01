@@ -164,6 +164,51 @@ namespace _DL.PlaySafe.Tests
         }
 
         [Test]
+        public void OverrideTrue_StillGatedByCanRecord()
+        {
+            // The override forces past samplingRate/smart-sampling, not past the caller's own
+            // permission gate (mic-mute, consent, lobby state) - CanRecord must still be consulted.
+            bool result = PlaySafeRecordingDecision.ShouldRecord(
+                overrideValue: true,
+                isEditorDebugRecord: false,
+                shouldRecordPlayTestNotes: false,
+                isRecording: false,
+                secondsSinceLastRecording: 0,
+                recordingIntermissionSeconds: int.MaxValue,
+                canRecord: CanRecord(false));
+            Assert.IsFalse(result);
+        }
+
+        [Test]
+        public void OverrideTrue_CanRecordTrue_ReturnsTrue()
+        {
+            bool result = PlaySafeRecordingDecision.ShouldRecord(
+                overrideValue: true,
+                isEditorDebugRecord: false,
+                shouldRecordPlayTestNotes: false,
+                isRecording: false,
+                secondsSinceLastRecording: 0,
+                recordingIntermissionSeconds: int.MaxValue,
+                canRecord: CanRecord(true));
+            Assert.IsTrue(result);
+        }
+
+        [Test]
+        public void OverrideFalse_DoesNotConsultCanRecord()
+        {
+            // "Never record" is unconditional - canRecord must not even be evaluated.
+            bool result = PlaySafeRecordingDecision.ShouldRecord(
+                overrideValue: false,
+                isEditorDebugRecord: false,
+                shouldRecordPlayTestNotes: false,
+                isRecording: false,
+                secondsSinceLastRecording: 9999,
+                recordingIntermissionSeconds: 0,
+                canRecord: Unreachable());
+            Assert.IsFalse(result);
+        }
+
+        [Test]
         public void OverrideNull_ReproducesDefaultPathExactly()
         {
             bool notElapsed = PlaySafeRecordingDecision.ShouldRecord(
