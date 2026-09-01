@@ -34,7 +34,9 @@ public class PlaySafeDemoIntegration : MonoBehaviour
 
         // Example: Force moderation on for higher-toxicity contexts, overruling remote-config
         // sampling. Read fresh every tick, so update it whenever your own match state changes -
-        // no restart needed. true = always record, false = never record, null = default sampling.
+        // no restart needed. true = always record (still subject to CanRecord above), false =
+        // never record, null = default sampling. Only gates whether a NEW recording starts - it
+        // won't cut off one already in progress.
         // playSafeManager.ShouldModerateOverride = IsCompetitiveMatch() ? true : (bool?)null;
     }
 
