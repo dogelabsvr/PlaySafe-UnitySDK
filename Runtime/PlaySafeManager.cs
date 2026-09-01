@@ -47,6 +47,13 @@ namespace _DL.PlaySafe
         public Func<bool> CanRecord { private get; set; }
 
         /// <summary>
+        /// Business-logic override for whether recording should happen, read fresh on every
+        /// ShouldRecord() tick so a change takes effect on the next tick with no restart needed.
+        /// True always records; false never records; null (default) defers to remote-config sampling.
+        /// </summary>
+        public bool? ShouldModerateOverride { get; set; }
+
+        /// <summary>
         /// Must be set to provide telemetry data.
         /// </summary>
         public Func<AudioEventRequestData> GetTelemetry { private get; set; }
@@ -335,6 +342,7 @@ namespace _DL.PlaySafe
 
             var totalSeconds = _lastRecording.Elapsed.TotalSeconds;
             return PlaySafeRecordingDecision.ShouldRecord(
+                overrideValue: ShouldModerateOverride,
                 isEditorDebugRecord: Application.isEditor && debugEnableRecord,
                 shouldRecordPlayTestNotes: _shouldRecordPlayTestNotes,
                 isRecording: _isRecording,

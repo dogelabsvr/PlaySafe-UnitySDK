@@ -9,6 +9,7 @@ namespace _DL.PlaySafe
     public static class PlaySafeRecordingDecision
     {
         public static bool ShouldRecord(
+            bool? overrideValue,
             bool isEditorDebugRecord,
             bool shouldRecordPlayTestNotes,
             bool isRecording,
@@ -16,6 +17,11 @@ namespace _DL.PlaySafe
             int recordingIntermissionSeconds,
             Func<bool> canRecord)
         {
+            // The business-logic override outranks every other early-out here, including playtest
+            // notes - it's the most explicit signal a caller can give, so it wins unconditionally.
+            if (overrideValue.HasValue)
+                return overrideValue.Value;
+
             if (isEditorDebugRecord && !isRecording)
                 return true;
 
