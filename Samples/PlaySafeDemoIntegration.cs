@@ -31,6 +31,9 @@ public class PlaySafeDemoIntegration : MonoBehaviour
         //     var vote = await playSafeManager.CastVoteAsync(poll.Data.Id, "yes");
         //     var results = await playSafeManager.GetPollResultsAsync(poll.Data.Id);
         // }
+
+        // Force moderation on regardless of remote-config sampling; read fresh each tick.
+        // playSafeManager.alwaysModerate = IsCompetitiveMatch();
     }
 
     private void OnPlaySafeInitialized(PlaySafeManager playSafeManager)
