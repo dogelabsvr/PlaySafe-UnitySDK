@@ -47,16 +47,6 @@ namespace _DL.PlaySafe
         public Func<bool> CanRecord { private get; set; }
 
         /// <summary>
-        /// Business-logic override for whether a NEW recording should start, read fresh on every
-        /// ShouldRecord() tick so a change takes effect on the next tick with no restart needed.
-        /// True forces recording regardless of samplingRate / smart sampling, but CanRecord still
-        /// gates it (mute/consent/lobby state); false never records, regardless of remote config;
-        /// null (default) defers to remote-config sampling. Does not interrupt a recording already
-        /// in progress - see CanRecord for the delegate that does.
-        /// </summary>
-        public bool? ShouldModerateOverride { get; set; }
-
-        /// <summary>
         /// Must be set to provide telemetry data.
         /// </summary>
         public Func<AudioEventRequestData> GetTelemetry { private get; set; }
@@ -134,6 +124,9 @@ namespace _DL.PlaySafe
         public int sampleRate = 24000;
         public int channelCount = 1;
         public bool isUsingExistingUnityMic = false;
+
+        [Tooltip("Ignore remote-config sampling and record every chance. Still gated by CanRecord.")]
+        public bool alwaysModerate = false;
 
         [Header("Debug Information - Not For Editing Purposes")]
         [SerializeField, Tooltip("Indicates whether microphone permission has been granted.")]
@@ -345,7 +338,7 @@ namespace _DL.PlaySafe
 
             var totalSeconds = _lastRecording.Elapsed.TotalSeconds;
             return PlaySafeRecordingDecision.ShouldRecord(
-                overrideValue: ShouldModerateOverride,
+                alwaysModerate: alwaysModerate,
                 isEditorDebugRecord: Application.isEditor && debugEnableRecord,
                 shouldRecordPlayTestNotes: _shouldRecordPlayTestNotes,
                 isRecording: _isRecording,

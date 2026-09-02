@@ -4,7 +4,7 @@ using _DL.PlaySafe;
 
 namespace _DL.PlaySafe.Tests
 {
-    // Captures ShouldRecord()'s branch behavior 1:1, plus the PLAY-308 business-logic override.
+    // Captures ShouldRecord()'s branch behavior 1:1, plus the PLAY-308 alwaysModerate override.
     public class PlaySafeRecordingDecisionTests
     {
         private static Func<bool> CanRecord(bool value) => () => value;
@@ -16,7 +16,7 @@ namespace _DL.PlaySafe.Tests
         public void EditorDebugRecord_NotRecording_ReturnsTrue()
         {
             bool result = PlaySafeRecordingDecision.ShouldRecord(
-                overrideValue: null,
+                alwaysModerate: false,
                 isEditorDebugRecord: true,
                 shouldRecordPlayTestNotes: false,
                 isRecording: false,
@@ -30,7 +30,7 @@ namespace _DL.PlaySafe.Tests
         public void EditorDebugRecord_AlreadyRecording_FallsThroughToDefaultPath()
         {
             bool result = PlaySafeRecordingDecision.ShouldRecord(
-                overrideValue: null,
+                alwaysModerate: false,
                 isEditorDebugRecord: true,
                 shouldRecordPlayTestNotes: false,
                 isRecording: true,
@@ -44,7 +44,7 @@ namespace _DL.PlaySafe.Tests
         public void PlayTestNotes_NotRecording_ReturnsCanRecord()
         {
             bool whenTrue = PlaySafeRecordingDecision.ShouldRecord(
-                overrideValue: null,
+                alwaysModerate: false,
                 isEditorDebugRecord: false,
                 shouldRecordPlayTestNotes: true,
                 isRecording: false,
@@ -52,7 +52,7 @@ namespace _DL.PlaySafe.Tests
                 recordingIntermissionSeconds: int.MaxValue,
                 canRecord: CanRecord(true));
             bool whenFalse = PlaySafeRecordingDecision.ShouldRecord(
-                overrideValue: null,
+                alwaysModerate: false,
                 isEditorDebugRecord: false,
                 shouldRecordPlayTestNotes: true,
                 isRecording: false,
@@ -67,7 +67,7 @@ namespace _DL.PlaySafe.Tests
         public void PlayTestNotes_AlreadyRecording_FallsThroughToDefaultPath()
         {
             bool result = PlaySafeRecordingDecision.ShouldRecord(
-                overrideValue: null,
+                alwaysModerate: false,
                 isEditorDebugRecord: false,
                 shouldRecordPlayTestNotes: true,
                 isRecording: true,
@@ -81,7 +81,7 @@ namespace _DL.PlaySafe.Tests
         public void DefaultPath_TimeElapsedAndCanRecord_ReturnsTrue()
         {
             bool result = PlaySafeRecordingDecision.ShouldRecord(
-                overrideValue: null,
+                alwaysModerate: false,
                 isEditorDebugRecord: false,
                 shouldRecordPlayTestNotes: false,
                 isRecording: false,
@@ -95,7 +95,7 @@ namespace _DL.PlaySafe.Tests
         public void DefaultPath_TimeNotElapsed_ReturnsFalse()
         {
             bool result = PlaySafeRecordingDecision.ShouldRecord(
-                overrideValue: null,
+                alwaysModerate: false,
                 isEditorDebugRecord: false,
                 shouldRecordPlayTestNotes: false,
                 isRecording: false,
@@ -109,7 +109,7 @@ namespace _DL.PlaySafe.Tests
         public void DefaultPath_CanRecordFalse_ReturnsFalse()
         {
             bool result = PlaySafeRecordingDecision.ShouldRecord(
-                overrideValue: null,
+                alwaysModerate: false,
                 isEditorDebugRecord: false,
                 shouldRecordPlayTestNotes: false,
                 isRecording: false,
@@ -123,7 +123,7 @@ namespace _DL.PlaySafe.Tests
         public void DefaultPath_AlreadyRecordingAndNotPlaytestNotes_ReturnsFalse()
         {
             bool result = PlaySafeRecordingDecision.ShouldRecord(
-                overrideValue: null,
+                alwaysModerate: false,
                 isEditorDebugRecord: false,
                 shouldRecordPlayTestNotes: false,
                 isRecording: true,
@@ -134,11 +134,11 @@ namespace _DL.PlaySafe.Tests
         }
 
         [Test]
-        public void OverrideTrue_ForcesRecording_EvenAtZeroSamplingRate()
+        public void AlwaysModerate_ForcesRecording_EvenAtZeroSamplingRate()
         {
             // recordingIntermissionSeconds: int.MaxValue is the samplingRate == 0 derivation.
             bool result = PlaySafeRecordingDecision.ShouldRecord(
-                overrideValue: true,
+                alwaysModerate: true,
                 isEditorDebugRecord: false,
                 shouldRecordPlayTestNotes: false,
                 isRecording: false,
@@ -149,27 +149,10 @@ namespace _DL.PlaySafe.Tests
         }
 
         [Test]
-        public void OverrideFalse_SuppressesRecording_EvenAtFullSamplingRate()
+        public void AlwaysModerate_StillGatedByCanRecord()
         {
-            // recordingIntermissionSeconds: 0 is the samplingRate == 1 derivation.
             bool result = PlaySafeRecordingDecision.ShouldRecord(
-                overrideValue: false,
-                isEditorDebugRecord: false,
-                shouldRecordPlayTestNotes: false,
-                isRecording: false,
-                secondsSinceLastRecording: 9999,
-                recordingIntermissionSeconds: 0,
-                canRecord: CanRecord(true));
-            Assert.IsFalse(result);
-        }
-
-        [Test]
-        public void OverrideTrue_StillGatedByCanRecord()
-        {
-            // The override forces past samplingRate/smart-sampling, not past the caller's own
-            // permission gate (mic-mute, consent, lobby state) - CanRecord must still be consulted.
-            bool result = PlaySafeRecordingDecision.ShouldRecord(
-                overrideValue: true,
+                alwaysModerate: true,
                 isEditorDebugRecord: false,
                 shouldRecordPlayTestNotes: false,
                 isRecording: false,
@@ -180,10 +163,10 @@ namespace _DL.PlaySafe.Tests
         }
 
         [Test]
-        public void OverrideTrue_CanRecordTrue_ReturnsTrue()
+        public void AlwaysModerate_CanRecordTrue_ReturnsTrue()
         {
             bool result = PlaySafeRecordingDecision.ShouldRecord(
-                overrideValue: true,
+                alwaysModerate: true,
                 isEditorDebugRecord: false,
                 shouldRecordPlayTestNotes: false,
                 isRecording: false,
@@ -194,25 +177,10 @@ namespace _DL.PlaySafe.Tests
         }
 
         [Test]
-        public void OverrideFalse_DoesNotConsultCanRecord()
-        {
-            // "Never record" is unconditional - canRecord must not even be evaluated.
-            bool result = PlaySafeRecordingDecision.ShouldRecord(
-                overrideValue: false,
-                isEditorDebugRecord: false,
-                shouldRecordPlayTestNotes: false,
-                isRecording: false,
-                secondsSinceLastRecording: 9999,
-                recordingIntermissionSeconds: 0,
-                canRecord: Unreachable());
-            Assert.IsFalse(result);
-        }
-
-        [Test]
-        public void OverrideNull_ReproducesDefaultPathExactly()
+        public void AlwaysModerateOff_ReproducesDefaultPathExactly()
         {
             bool notElapsed = PlaySafeRecordingDecision.ShouldRecord(
-                overrideValue: null,
+                alwaysModerate: false,
                 isEditorDebugRecord: false,
                 shouldRecordPlayTestNotes: false,
                 isRecording: false,
@@ -220,7 +188,7 @@ namespace _DL.PlaySafe.Tests
                 recordingIntermissionSeconds: 60,
                 canRecord: Unreachable());
             bool elapsed = PlaySafeRecordingDecision.ShouldRecord(
-                overrideValue: null,
+                alwaysModerate: false,
                 isEditorDebugRecord: false,
                 shouldRecordPlayTestNotes: false,
                 isRecording: false,
@@ -232,20 +200,19 @@ namespace _DL.PlaySafe.Tests
         }
 
         [Test]
-        public void Override_FlippingBetweenEvaluations_TakesEffectImmediately_NoCachedDecision()
+        public void AlwaysModerate_FlippingBetweenEvaluations_TakesEffectImmediately_NoCachedDecision()
         {
-            // Same inputs every time except overrideValue - proves the decision is re-read fresh
-            // each call rather than latched from a prior evaluation.
+            // Same inputs except alwaysModerate - proves nothing is latched between calls.
             bool first = PlaySafeRecordingDecision.ShouldRecord(
-                overrideValue: false,
+                alwaysModerate: false,
                 isEditorDebugRecord: false,
                 shouldRecordPlayTestNotes: false,
                 isRecording: false,
-                secondsSinceLastRecording: 9999,
-                recordingIntermissionSeconds: 0,
+                secondsSinceLastRecording: 0,
+                recordingIntermissionSeconds: int.MaxValue,
                 canRecord: CanRecord(true));
             bool second = PlaySafeRecordingDecision.ShouldRecord(
-                overrideValue: true,
+                alwaysModerate: true,
                 isEditorDebugRecord: false,
                 shouldRecordPlayTestNotes: false,
                 isRecording: false,
@@ -253,7 +220,7 @@ namespace _DL.PlaySafe.Tests
                 recordingIntermissionSeconds: int.MaxValue,
                 canRecord: CanRecord(true));
             bool third = PlaySafeRecordingDecision.ShouldRecord(
-                overrideValue: null,
+                alwaysModerate: false,
                 isEditorDebugRecord: false,
                 shouldRecordPlayTestNotes: false,
                 isRecording: false,
@@ -266,30 +233,25 @@ namespace _DL.PlaySafe.Tests
         }
 
         [Test]
-        public void OverrideFalse_OutranksPlayTestNotes()
+        public void AlwaysModerate_OutranksPlayTestNotesGating()
         {
-            // Playtest notes alone would return true (see PlayTestNotes_NotRecording_ReturnsCanRecord);
-            // the override still wins.
             bool result = PlaySafeRecordingDecision.ShouldRecord(
-                overrideValue: false,
+                alwaysModerate: true,
                 isEditorDebugRecord: false,
                 shouldRecordPlayTestNotes: true,
-                isRecording: false,
+                isRecording: true,
                 secondsSinceLastRecording: 0,
                 recordingIntermissionSeconds: int.MaxValue,
-                canRecord: Unreachable());
-            Assert.IsFalse(result);
+                canRecord: CanRecord(true));
+            Assert.IsTrue(result);
         }
 
         [Test]
-        public void OverrideTrue_WhileAlreadyRecording_StillReturnsTrue()
+        public void AlwaysModerate_WhileAlreadyRecording_StillReturnsTrue()
         {
-            // ShouldRecord() returning true here does not by itself start a second recording:
-            // PlaySafeManager.Update() only calls StartRecording() when ShouldRecord() && !_isRecording,
-            // so that pre-existing outer guard - unchanged by this decision - is what prevents a
-            // double-start. This test only pins down what the decision itself returns.
+            // The !_isRecording guard in Update() is what prevents a double-start, not this.
             bool result = PlaySafeRecordingDecision.ShouldRecord(
-                overrideValue: true,
+                alwaysModerate: true,
                 isEditorDebugRecord: false,
                 shouldRecordPlayTestNotes: false,
                 isRecording: true,
@@ -300,10 +262,10 @@ namespace _DL.PlaySafe.Tests
         }
 
         [Test]
-        public void OverrideTrue_InEditorWithDebugRecordOff_StillReturnsTrue()
+        public void AlwaysModerate_InEditorWithDebugRecordOff_StillReturnsTrue()
         {
             bool result = PlaySafeRecordingDecision.ShouldRecord(
-                overrideValue: true,
+                alwaysModerate: true,
                 isEditorDebugRecord: false, // Application.isEditor && debugEnableRecord == false
                 shouldRecordPlayTestNotes: false,
                 isRecording: false,
@@ -314,10 +276,10 @@ namespace _DL.PlaySafe.Tests
         }
 
         [Test]
-        public void Override_FlippingWhileRecording_TakesEffectImmediately()
+        public void AlwaysModerate_FlippingWhileRecording_TakesEffectImmediately()
         {
             bool whenTrue = PlaySafeRecordingDecision.ShouldRecord(
-                overrideValue: true,
+                alwaysModerate: true,
                 isEditorDebugRecord: false,
                 shouldRecordPlayTestNotes: false,
                 isRecording: true,
@@ -325,7 +287,7 @@ namespace _DL.PlaySafe.Tests
                 recordingIntermissionSeconds: 60,
                 canRecord: CanRecord(true));
             bool whenFalse = PlaySafeRecordingDecision.ShouldRecord(
-                overrideValue: false,
+                alwaysModerate: false,
                 isEditorDebugRecord: false,
                 shouldRecordPlayTestNotes: false,
                 isRecording: true,

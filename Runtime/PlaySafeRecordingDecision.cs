@@ -9,7 +9,7 @@ namespace _DL.PlaySafe
     public static class PlaySafeRecordingDecision
     {
         public static bool ShouldRecord(
-            bool? overrideValue,
+            bool alwaysModerate,
             bool isEditorDebugRecord,
             bool shouldRecordPlayTestNotes,
             bool isRecording,
@@ -17,12 +17,9 @@ namespace _DL.PlaySafe
             int recordingIntermissionSeconds,
             Func<bool> canRecord)
         {
-            // The business-logic override outranks every other early-out here, including playtest
-            // notes and the samplingRate/remote-config derivation - but it does not outrank the
-            // caller's own CanRecord permission gate (mute/consent/lobby state). False short-circuits
-            // canRecord entirely since "never record" is unconditional either way.
-            if (overrideValue.HasValue)
-                return overrideValue.Value && canRecord();
+            // Outranks the other early-outs, but not the caller's CanRecord gate.
+            if (alwaysModerate)
+                return canRecord();
 
             if (isEditorDebugRecord && !isRecording)
                 return true;
