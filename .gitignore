@@ -2,5 +2,6 @@
 .DS_Store
 CLAUDE.md
 docs/
+docs.meta
 Tests~/**/bin/
 Tests~/**/obj/
