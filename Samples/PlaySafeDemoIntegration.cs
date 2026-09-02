@@ -32,12 +32,8 @@ public class PlaySafeDemoIntegration : MonoBehaviour
         //     var results = await playSafeManager.GetPollResultsAsync(poll.Data.Id);
         // }
 
-        // Example: Force moderation on for higher-toxicity contexts, overruling remote-config
-        // sampling. Read fresh every tick, so update it whenever your own match state changes -
-        // no restart needed. true = always record (still subject to CanRecord above), false =
-        // never record, null = default sampling. Only gates whether a NEW recording starts - it
-        // won't cut off one already in progress.
-        // playSafeManager.ShouldModerateOverride = IsCompetitiveMatch() ? true : (bool?)null;
+        // Force moderation on regardless of remote-config sampling; read fresh each tick.
+        // playSafeManager.alwaysModerate = IsCompetitiveMatch();
     }
 
     private void OnPlaySafeInitialized(PlaySafeManager playSafeManager)
