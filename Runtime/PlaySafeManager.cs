@@ -596,8 +596,8 @@ namespace _DL.PlaySafe
             
             form.AddField("userId", telemetry.UserId);
             form.AddField("roomId", telemetry.RoomId);
-            form.AddField("source", ModerationSource.UNITY_SDK.ToString());
-            form.AddField("platform", ModerationPlatform.IN_GAME.ToString());
+            form.AddField("source", ModerationSource.UNITY_SDK.Value);
+            form.AddField("platform", ModerationPlatform.IN_GAME.Value);
             form.AddField("language", Application.systemLanguage.ToString());
             
             if(telemetry.UserName != null) 
