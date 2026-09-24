@@ -11,7 +11,6 @@ namespace _DL.PlaySafe
         public static bool ShouldRecord(
             bool alwaysModerate,
             bool isEditorDebugRecord,
-            bool shouldRecordPlayTestNotes,
             bool isRecording,
             double secondsSinceLastRecording,
             int recordingIntermissionSeconds,
@@ -24,12 +23,8 @@ namespace _DL.PlaySafe
             if (isEditorDebugRecord && !isRecording)
                 return true;
 
-            // For continuous notes recording - start immediately when not recording
-            if (shouldRecordPlayTestNotes && !isRecording)
-                return canRecord();
-
             bool timeHasElapsed = secondsSinceLastRecording > recordingIntermissionSeconds;
-            return (!isRecording || shouldRecordPlayTestNotes) && timeHasElapsed && canRecord();
+            return !isRecording && timeHasElapsed && canRecord();
         }
     }
 }

@@ -97,17 +97,4 @@ public class PlaySafeDemoIntegration : MonoBehaviour
 
         return telemetry;
     }
-
-    [ContextMenu("Start taking notes")]
-    public async void StartTakingNotes()
-    {
-        await playSafeManager.StartTakingNotesAsync();
-    }   
-    
-    [ContextMenu("Stop taking notes")]
-    public async void StopTakingNotes()
-    {
-        await playSafeManager.StopTakingNotesAsync();
-    }
-    
 }

@@ -28,7 +28,7 @@ namespace _DL.PlaySafe
         
         private const string PlaysafeBaseURL = "https://dl-voice-ai.dogelabs.workers.dev";
         private const string VoiceModerationEndpoint = "/products/moderation";
-        private const string PlayTestDevBaseEndpoint = "/dev";
+        private const string DevBaseEndpoint = "/dev";
         private const string ReportEndpoint = "/products/moderation";
         
         #region Singleton & Initialization
@@ -37,9 +37,7 @@ namespace _DL.PlaySafe
 
         private bool _isInitialized = false;
         private bool _isPlayerDev = false;
-        private bool _hasPlayerDevStatus = false;
         private bool _isFetchingPlayerDevStatus = false;
-        private bool _isProductNotesSyncRunning = false;
 
         /// <summary>
         /// Must be set to a delegate that returns whether recording is permitted.
@@ -172,14 +170,7 @@ namespace _DL.PlaySafe
 
         #endregion
 
-        #region Playtest related
-        private float _syncProductIsTakingNotesIntervalInSeconds = 5.0f;
-
-        public bool ShouldRecordPlayTestNotes => _shouldRecordPlayTestNotes;
-        private bool _shouldRecordPlayTestNotes = false;
-        private bool _shouldRecordNotesFetched = false;
-        private string _playTestNotesId;
-        private bool _hasPendingNotes = false;
+        #region Custom Auth
         private bool _hasCustomAuth = false;
         private string _authToken = null;
 
@@ -194,7 +185,7 @@ namespace _DL.PlaySafe
             #endif
             
             StartCoroutine(SendSessionPulseCoroutine());
-            StartCoroutine(GetIsPlayerDevCoroutine(startNotesSyncIfDev: true));
+            StartCoroutine(GetIsPlayerDevCoroutine());
         }
 
         private void Update()
@@ -332,15 +323,10 @@ namespace _DL.PlaySafe
         /// </summary>
         private bool ShouldRecord()
         {
-            // Don't start recording until we've fetched the notes status at least once
-            // if (!_shouldRecordNotesFetched)
-            //     return false;
-
             var totalSeconds = _lastRecording.Elapsed.TotalSeconds;
             return PlaySafeRecordingDecision.ShouldRecord(
                 alwaysModerate: alwaysModerate,
                 isEditorDebugRecord: Application.isEditor && debugEnableRecord,
-                shouldRecordPlayTestNotes: _shouldRecordPlayTestNotes,
                 isRecording: _isRecording,
                 secondsSinceLastRecording: totalSeconds,
                 recordingIntermissionSeconds: _recordingIntermissionSeconds,
@@ -402,8 +388,7 @@ namespace _DL.PlaySafe
             _activeRecordingTime.Restart();
             _pauseTimer.Reset();
 
-            Log($"[StateMachine] Recording started - mode: {(isUsingExistingUnityMic ? "Photon" : "UnityMic")}, sampleRate: {sampleRate}, channels: {channelCount}" +
-                (_shouldRecordPlayTestNotes ? ", playtest notes: ON" : ""));
+            Log($"[StateMachine] Recording started - mode: {(isUsingExistingUnityMic ? "Photon" : "UnityMic")}, sampleRate: {sampleRate}, channels: {channelCount}");
         }
 
         private void PauseRecording()
@@ -731,24 +716,7 @@ namespace _DL.PlaySafe
 
             yield return WaitForEndOfFrame;
 
-            if (_shouldRecordPlayTestNotes)
-            {
-                form.AddField("playerUserId", GetTelemetry().UserId);
-
-                if (!string.IsNullOrEmpty(_playTestNotesId))
-                {
-                    form.AddField("playTestNotesId", _playTestNotesId);
-                }
-
-                Log("PlaySafeManager: Taking notes, sending Opus audio for transcription");
-
-                string notesUrl = AddTokenToUrl(PlayTestDevBaseEndpoint + "/notes/transcripts");
-                yield return StartCoroutine(SendFormCoroutine(notesUrl, form));
-            }
-            else
-            {
-                yield return StartCoroutine(SendFormCoroutine(AddTokenToUrl(OpusModerationEndpoint), form));
-            }
+            yield return StartCoroutine(SendFormCoroutine(AddTokenToUrl(OpusModerationEndpoint), form));
         }
 
         public IEnumerator SendTextForAnalysisCoroutine(string text)
@@ -781,11 +749,6 @@ namespace _DL.PlaySafe
 
         private void ProcessModerationResponse(string jsonResponse)
         {
-            // No need to try processing moderation responses when taking playtest notes
-            if(_shouldRecordPlayTestNotes) {
-                return;
-            }
-
             try
             {
                 PlaySafeActionResponse response = JsonConvert.DeserializeObject<PlaySafeActionResponse>(jsonResponse);
@@ -979,10 +942,9 @@ namespace _DL.PlaySafe
                 _hasFocus = hasFocus;
             }
 
-            // When we regain focus, refresh dev status and start notes sync if applicable.
             if (hasFocus)
             {
-                StartCoroutine(GetIsPlayerDevCoroutine(startNotesSyncIfDev: true));
+                StartCoroutine(GetIsPlayerDevCoroutine());
             }
         }
 
@@ -1232,16 +1194,11 @@ namespace _DL.PlaySafe
                     RemoteConfigVoiceAIData config = response.Data;
                     float samplingRate = Mathf.Clamp(config.SamplingRate, 0f, 1f);
 
-                    // Override the recording intermission seconds (always be recording) if we are taking playtest notes
-                    if(_shouldRecordPlayTestNotes) {
-                        _recordingIntermissionSeconds = 0; // Zero intermission for continuous recording when taking notes
-                    }else {
-                        _recordingIntermissionSeconds = samplingRate > 0.000001f
-                        ? Mathf.Max(0, (int)((RecordingDurationSeconds / samplingRate) - RecordingDurationSeconds))
-                        : int.MaxValue;
-                        
-                        Debug.Log(response.Data);
-                    }
+                    _recordingIntermissionSeconds = samplingRate > 0.000001f
+                    ? Mathf.Max(0, (int)((RecordingDurationSeconds / samplingRate) - RecordingDurationSeconds))
+                    : int.MaxValue;
+                    
+                    Debug.Log(response.Data);
                     _playerSessionIntervalInSeconds = config.SessionPulseIntervalSeconds;
                     
                     _silenceThreshold = config.AudioSilenceThreshold;
@@ -1491,148 +1448,7 @@ namespace _DL.PlaySafe
 
         #endregion
 
-        #region Playtest related
-        public async Task<PlayTestNotesResponse> StartTakingNotesAsync()
-        {
-            // We are already taking notes, don't let this run again
-            if (_shouldRecordPlayTestNotes)
-            {
-                return null;
-            }
-
-            _shouldRecordPlayTestNotes = true;
-
-            string url = PlaysafeBaseURL + PlayTestDevBaseEndpoint + "/notes";
-            string playerUserId = GetTelemetry().UserId;
-
-            var requestBody = new
-            {
-                playerUserId
-            };
-
-            var response = await SendApiRequest<PlayTestNotesResponse>(url, new ApiRequestOptions
-            {
-                Method = "POST",
-                RequestBody = requestBody,
-                SuccessMessage = "StartTakingNotes completed"
-            });
-
-            if (response.Success && response.Data != null && response.Data.Ok && response.Data.Data != null)
-            {
-                _playTestNotesId = response.Data.Data.Id;
-                _shouldRecordPlayTestNotes = true;
-                Log($"Started taking notes with ID: {_playTestNotesId}");
-                return response.Data;
-            }
-            else
-            {
-                _shouldRecordPlayTestNotes = false;
-                LogError("Failed to start taking notes");
-                return null;
-            }
-        }
-        
-        public async Task<PlayTestNotesResponse> StopTakingNotesAsync()
-        {
-            // We already stopped recording notes, don't try stopping again
-            if (!_shouldRecordPlayTestNotes)
-            {
-                return null;
-            }
-            
-            // Ensure at least 15 seconds pass (10 seconds + 5 second buffer) before stopping
-            double elapsed = _lastRecording.Elapsed.TotalSeconds;
-            double delayNeeded = Math.Max(15 - elapsed, 0);
-            
-            if (delayNeeded > 0)
-            {
-                await Task.Delay(TimeSpan.FromSeconds(delayNeeded)).ConfigureAwait(false);
-            }
-            
-            _shouldRecordPlayTestNotes = false;
-
-            string url = PlaysafeBaseURL + PlayTestDevBaseEndpoint + "/notes/stop";
-            object requestBody = null;
-
-            if (!string.IsNullOrEmpty(_playTestNotesId))
-            {
-                requestBody = new
-                {
-                    playTestNotesId = _playTestNotesId
-                };
-            }
-
-            var response = await SendApiRequest<PlayTestNotesResponse>(url, new ApiRequestOptions
-            {
-                Method = "POST",
-                RequestBody = requestBody,
-                SuccessMessage = "StopTakingNotes completed"
-            });
-
-            if (response.Success && response.Data != null && response.Data.Ok)
-            {
-                _playTestNotesId = null;
-                _shouldRecordPlayTestNotes = false;
-                Log("Stopped taking notes");
-                return response.Data;
-            }
-            else
-            {
-                _shouldRecordPlayTestNotes = true;
-                LogError("Failed to stop taking notes");
-                return null;
-            }
-        }
-
-        private async Task<PlayTestProductIsTakingNotesResponse> SyncProductIsTakingNotesAsync()
-        {
-            if (!_isInitialized)
-            {
-                return null;
-            }
-            
-            string playerUserId = GetTelemetry().UserId;
-            string url = PlaysafeBaseURL + PlayTestDevBaseEndpoint + "/active-notes?playerUserId=" + playerUserId;
-
-            var response = await SendApiRequest<PlayTestProductIsTakingNotesResponse>(url, new ApiRequestOptions
-            {
-                Method = "GET",
-                SuccessMessage = "GetProductIsTakingNotes completed"
-            });
-
-            if (response.Success)
-            {
-                var result = response.Data;
-                
-                if (result != null && result.Ok && result.Data != null)
-                {
-                    bool previousState = _shouldRecordPlayTestNotes;
-                    _shouldRecordPlayTestNotes = result.Data.IsTakingNotes;
-                    _shouldRecordNotesFetched = true;
-
-                    // Override the recording intermission seconds (always be recording) if we are taking playtest notes
-                    if(_shouldRecordPlayTestNotes) {
-                        _recordingIntermissionSeconds = 0; // Zero intermission for continuous recording
-                        
-                        // If notes recording just became active, log the change
-                        if (!previousState && _shouldRecordPlayTestNotes)
-                        {
-                            Log("PlaySafeManager: Notes recording activated, continuous recording enabled");
-                        }
-                    }
-
-                    Log($"Product is taking notes: {_shouldRecordPlayTestNotes}");
-                }
-                
-                return result;
-            }
-            else
-            {
-                LogError("Failed to get product taking notes status");
-                return null;
-            }
-        }
-
+        #region Dev status
         private async Task<PlayerIsDevResponse> GetIsPlayerDevAsync()
         {
             // Default to non-dev unless the API tells us otherwise.
@@ -1661,8 +1477,7 @@ namespace _DL.PlaySafe
             }
 
             // Note: This endpoint returns { ok, data: { isDev }, message }.
-            // We include playerUserId for consistency with other /dev endpoints.
-            string url = $"{PlaysafeBaseURL}{PlayTestDevBaseEndpoint}/player-is-dev?playerUserId={playerUserId}";
+            string url = $"{PlaysafeBaseURL}{DevBaseEndpoint}/player-is-dev?playerUserId={playerUserId}";
 
             var response = await SendApiRequest<PlayerIsDevResponse>(url, new ApiRequestOptions
             {
@@ -1697,7 +1512,7 @@ namespace _DL.PlaySafe
             }
         }
 
-        private IEnumerator GetIsPlayerDevCoroutine(bool startNotesSyncIfDev)
+        private IEnumerator GetIsPlayerDevCoroutine()
         {
             if (_isFetchingPlayerDevStatus)
                 yield break;
@@ -1710,65 +1525,12 @@ namespace _DL.PlaySafe
                 yield return null;
 
             _isFetchingPlayerDevStatus = false;
-            _hasPlayerDevStatus = true;
 
             if (task.IsFaulted)
                 Debug.LogException(task.Exception);
-
-            if (startNotesSyncIfDev && _isPlayerDev)
-            {
-                StartCoroutine(SyncProductIsTakingNotesCoroutine());
-            }
         }
 
-        private IEnumerator SyncProductIsTakingNotesCoroutine()
-        {
-            if (_isProductNotesSyncRunning)
-                yield break;
-            
-            _isProductNotesSyncRunning = true;
-
-            // Wait until we have fetched dev status at least once.
-            while (!_hasPlayerDevStatus)
-                yield return null;
-
-            // Non-devs should never perform notes syncing.
-            if (!_isPlayerDev)
-            {
-                Debug.Log("PlaySafeManager: Skipping product notes sync (non-dev)");
-                _isProductNotesSyncRunning = false;
-                yield break;
-            }
-
-            Debug.Log("PlaySafeManager: Starting product notes sync (dev)");
-
-            // Perform initial sync immediately
-            var initialTask = SyncProductIsTakingNotesAsync();
-            while (!initialTask.IsCompleted)
-                yield return null;
-            
-            if (initialTask.IsFaulted)
-                Debug.LogException(initialTask.Exception);
-            
-            // Then continue with periodic sync
-            var wait = new WaitForSecondsRealtime(_syncProductIsTakingNotesIntervalInSeconds);
-            
-            while (true)
-            {
-                yield return wait; // yields back to Unity; gameplay continues
-
-                var task = SyncProductIsTakingNotesAsync();
-
-                // Poll the task without blocking
-                while (!task.IsCompleted)
-                    yield return null; // yield each frame until it's done
-
-                if (task.IsFaulted)
-                    Debug.LogException(task.Exception);
-            }
-        }
-        
-        #endregion Playtest related
+        #endregion Dev status
 
         #region Data Classes
 
