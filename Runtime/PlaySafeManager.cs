@@ -885,6 +885,60 @@ namespace _DL.PlaySafe
             return await tcs.Task;
         }
 
+        /// <summary>
+        /// Reports a player.
+        /// </summary>
+        [ItemCanBeNull]
+        public async Task<ModerationEventResponse> ReportPlayerAsync(string targetUserId)
+        {
+            return await ReportUserAsync(targetUserId, ModerationEventType.Report);
+        }
+
+        /// <summary>
+        /// Undoes a report on a player.
+        /// </summary>
+        [ItemCanBeNull]
+        public async Task<PlaySafeApiResponse> UndoReportPlayerAsync(string targetUserId)
+        {
+            return await UnReportUserAsync(targetUserId, ModerationEventType.Report);
+        }
+
+        /// <summary>
+        /// Mutes a player.
+        /// </summary>
+        [ItemCanBeNull]
+        public async Task<ModerationEventResponse> MutePlayerAsync(string targetUserId)
+        {
+            return await ReportUserAsync(targetUserId, ModerationEventType.Mute);
+        }
+
+        /// <summary>
+        /// Unmutes a player.
+        /// </summary>
+        [ItemCanBeNull]
+        public async Task<PlaySafeApiResponse> UnmutePlayerAsync(string targetUserId)
+        {
+            return await UnReportUserAsync(targetUserId, ModerationEventType.Mute);
+        }
+
+        /// <summary>
+        /// Blocks a player.
+        /// </summary>
+        [ItemCanBeNull]
+        public async Task<ModerationEventResponse> BlockPlayerAsync(string targetUserId)
+        {
+            return await ReportUserAsync(targetUserId, ModerationEventType.Block);
+        }
+
+        /// <summary>
+        /// Unblocks a player.
+        /// </summary>
+        [ItemCanBeNull]
+        public async Task<PlaySafeApiResponse> UnblockPlayerAsync(string targetUserId)
+        {
+            return await UnReportUserAsync(targetUserId, ModerationEventType.Block);
+        }
+
         private IEnumerator UnReportUserCoroutine(string targetUserId, string eventType, TaskCompletionSource<PlaySafeApiResponse> tcs)
         {
             string url = AddTokenToUrl($"{PlaysafeBaseURL}{ReportEndpoint}/{eventType}/undo");

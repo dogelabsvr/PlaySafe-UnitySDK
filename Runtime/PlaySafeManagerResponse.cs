@@ -356,5 +356,12 @@ namespace _DL.PlaySafe
         public string Value { get; }
         private ModerationSource(string value) => Value = value;
     }
+
+    public static class ModerationEventType
+    {
+        public const string Report = "report";
+        public const string Mute   = "mute";
+        public const string Block  = "block";
+    }
     #endregion 
 }
