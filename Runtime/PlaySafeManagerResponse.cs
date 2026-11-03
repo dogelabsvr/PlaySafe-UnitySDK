@@ -323,39 +323,7 @@ namespace _DL.PlaySafe
 
     //#endregion
 
-    #region Playtest related
-    public class PlayTestNotesResponse: PlaySafeApiResponse<PlayTestNotesData> {}
-
-    public class PlayTestNotesData {
-        [JsonProperty("id")]
-        public string Id { get; set; }
-
-        [JsonProperty("productId")]
-        public string ProductId { get; set; }
-
-        [JsonProperty("startedByPlayerUserId")]
-        public string StartedByPlayerUserId { get; set; }
-
-        [JsonProperty("isRecordingCompleted")]
-        public bool IsRecordingCompleted { get; set; }
-
-        [JsonProperty("notes")]
-        public string Notes { get; set; }
-
-        [JsonProperty("createdAt")]
-        public DateTime CreatedAt { get; set; }
-
-        [JsonProperty("updatedAt")]
-        public DateTime UpdatedAt { get; set; }
-    }
-
-    public class PlayTestProductIsTakingNotesResponse: PlaySafeApiResponse<PlayTestProductIsTakingNotesData> {}
-
-    public class PlayTestProductIsTakingNotesData {
-        [JsonProperty("isTakingNotes")]
-        public bool IsTakingNotes { get; set; }
-    }
-
+    #region Dev status
     public class PlayerIsDevResponse : PlaySafeApiResponse<PlayerIsDevData> {}
 
     public class PlayerIsDevData
@@ -387,6 +355,13 @@ namespace _DL.PlaySafe
         public static readonly ModerationSource UNITY_SDK   = new("unity-sdk");
         public string Value { get; }
         private ModerationSource(string value) => Value = value;
+    }
+
+    public static class ModerationEventType
+    {
+        public const string Report = "report";
+        public const string Mute   = "mute";
+        public const string Block  = "block";
     }
     #endregion 
 }

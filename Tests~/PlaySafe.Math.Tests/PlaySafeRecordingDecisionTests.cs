@@ -18,7 +18,6 @@ namespace _DL.PlaySafe.Tests
             bool result = PlaySafeRecordingDecision.ShouldRecord(
                 alwaysModerate: false,
                 isEditorDebugRecord: true,
-                shouldRecordPlayTestNotes: false,
                 isRecording: false,
                 secondsSinceLastRecording: 0,
                 recordingIntermissionSeconds: int.MaxValue,
@@ -32,7 +31,6 @@ namespace _DL.PlaySafe.Tests
             bool result = PlaySafeRecordingDecision.ShouldRecord(
                 alwaysModerate: false,
                 isEditorDebugRecord: true,
-                shouldRecordPlayTestNotes: false,
                 isRecording: true,
                 secondsSinceLastRecording: 9999,
                 recordingIntermissionSeconds: 60,
@@ -41,49 +39,11 @@ namespace _DL.PlaySafe.Tests
         }
 
         [Test]
-        public void PlayTestNotes_NotRecording_ReturnsCanRecord()
-        {
-            bool whenTrue = PlaySafeRecordingDecision.ShouldRecord(
-                alwaysModerate: false,
-                isEditorDebugRecord: false,
-                shouldRecordPlayTestNotes: true,
-                isRecording: false,
-                secondsSinceLastRecording: 0,
-                recordingIntermissionSeconds: int.MaxValue,
-                canRecord: CanRecord(true));
-            bool whenFalse = PlaySafeRecordingDecision.ShouldRecord(
-                alwaysModerate: false,
-                isEditorDebugRecord: false,
-                shouldRecordPlayTestNotes: true,
-                isRecording: false,
-                secondsSinceLastRecording: 0,
-                recordingIntermissionSeconds: int.MaxValue,
-                canRecord: CanRecord(false));
-            Assert.IsTrue(whenTrue);
-            Assert.IsFalse(whenFalse);
-        }
-
-        [Test]
-        public void PlayTestNotes_AlreadyRecording_FallsThroughToDefaultPath()
-        {
-            bool result = PlaySafeRecordingDecision.ShouldRecord(
-                alwaysModerate: false,
-                isEditorDebugRecord: false,
-                shouldRecordPlayTestNotes: true,
-                isRecording: true,
-                secondsSinceLastRecording: 100,
-                recordingIntermissionSeconds: 60,
-                canRecord: CanRecord(true));
-            Assert.IsTrue(result);
-        }
-
-        [Test]
         public void DefaultPath_TimeElapsedAndCanRecord_ReturnsTrue()
         {
             bool result = PlaySafeRecordingDecision.ShouldRecord(
                 alwaysModerate: false,
                 isEditorDebugRecord: false,
-                shouldRecordPlayTestNotes: false,
                 isRecording: false,
                 secondsSinceLastRecording: 100,
                 recordingIntermissionSeconds: 60,
@@ -97,7 +57,6 @@ namespace _DL.PlaySafe.Tests
             bool result = PlaySafeRecordingDecision.ShouldRecord(
                 alwaysModerate: false,
                 isEditorDebugRecord: false,
-                shouldRecordPlayTestNotes: false,
                 isRecording: false,
                 secondsSinceLastRecording: 10,
                 recordingIntermissionSeconds: 60,
@@ -111,7 +70,6 @@ namespace _DL.PlaySafe.Tests
             bool result = PlaySafeRecordingDecision.ShouldRecord(
                 alwaysModerate: false,
                 isEditorDebugRecord: false,
-                shouldRecordPlayTestNotes: false,
                 isRecording: false,
                 secondsSinceLastRecording: 100,
                 recordingIntermissionSeconds: 60,
@@ -120,12 +78,11 @@ namespace _DL.PlaySafe.Tests
         }
 
         [Test]
-        public void DefaultPath_AlreadyRecordingAndNotPlaytestNotes_ReturnsFalse()
+        public void DefaultPath_AlreadyRecording_ReturnsFalse()
         {
             bool result = PlaySafeRecordingDecision.ShouldRecord(
                 alwaysModerate: false,
                 isEditorDebugRecord: false,
-                shouldRecordPlayTestNotes: false,
                 isRecording: true,
                 secondsSinceLastRecording: 9999,
                 recordingIntermissionSeconds: 60,
@@ -140,7 +97,6 @@ namespace _DL.PlaySafe.Tests
             bool result = PlaySafeRecordingDecision.ShouldRecord(
                 alwaysModerate: true,
                 isEditorDebugRecord: false,
-                shouldRecordPlayTestNotes: false,
                 isRecording: false,
                 secondsSinceLastRecording: 0,
                 recordingIntermissionSeconds: int.MaxValue,
@@ -154,7 +110,6 @@ namespace _DL.PlaySafe.Tests
             bool result = PlaySafeRecordingDecision.ShouldRecord(
                 alwaysModerate: true,
                 isEditorDebugRecord: false,
-                shouldRecordPlayTestNotes: false,
                 isRecording: false,
                 secondsSinceLastRecording: 0,
                 recordingIntermissionSeconds: int.MaxValue,
@@ -168,7 +123,6 @@ namespace _DL.PlaySafe.Tests
             bool result = PlaySafeRecordingDecision.ShouldRecord(
                 alwaysModerate: true,
                 isEditorDebugRecord: false,
-                shouldRecordPlayTestNotes: false,
                 isRecording: false,
                 secondsSinceLastRecording: 0,
                 recordingIntermissionSeconds: int.MaxValue,
@@ -182,7 +136,6 @@ namespace _DL.PlaySafe.Tests
             bool notElapsed = PlaySafeRecordingDecision.ShouldRecord(
                 alwaysModerate: false,
                 isEditorDebugRecord: false,
-                shouldRecordPlayTestNotes: false,
                 isRecording: false,
                 secondsSinceLastRecording: 10,
                 recordingIntermissionSeconds: 60,
@@ -190,7 +143,6 @@ namespace _DL.PlaySafe.Tests
             bool elapsed = PlaySafeRecordingDecision.ShouldRecord(
                 alwaysModerate: false,
                 isEditorDebugRecord: false,
-                shouldRecordPlayTestNotes: false,
                 isRecording: false,
                 secondsSinceLastRecording: 100,
                 recordingIntermissionSeconds: 60,
@@ -206,7 +158,6 @@ namespace _DL.PlaySafe.Tests
             bool first = PlaySafeRecordingDecision.ShouldRecord(
                 alwaysModerate: false,
                 isEditorDebugRecord: false,
-                shouldRecordPlayTestNotes: false,
                 isRecording: false,
                 secondsSinceLastRecording: 0,
                 recordingIntermissionSeconds: int.MaxValue,
@@ -214,7 +165,6 @@ namespace _DL.PlaySafe.Tests
             bool second = PlaySafeRecordingDecision.ShouldRecord(
                 alwaysModerate: true,
                 isEditorDebugRecord: false,
-                shouldRecordPlayTestNotes: false,
                 isRecording: false,
                 secondsSinceLastRecording: 0,
                 recordingIntermissionSeconds: int.MaxValue,
@@ -222,7 +172,6 @@ namespace _DL.PlaySafe.Tests
             bool third = PlaySafeRecordingDecision.ShouldRecord(
                 alwaysModerate: false,
                 isEditorDebugRecord: false,
-                shouldRecordPlayTestNotes: false,
                 isRecording: false,
                 secondsSinceLastRecording: 0,
                 recordingIntermissionSeconds: int.MaxValue,
@@ -233,27 +182,12 @@ namespace _DL.PlaySafe.Tests
         }
 
         [Test]
-        public void AlwaysModerate_OutranksPlayTestNotesGating()
-        {
-            bool result = PlaySafeRecordingDecision.ShouldRecord(
-                alwaysModerate: true,
-                isEditorDebugRecord: false,
-                shouldRecordPlayTestNotes: true,
-                isRecording: true,
-                secondsSinceLastRecording: 0,
-                recordingIntermissionSeconds: int.MaxValue,
-                canRecord: CanRecord(true));
-            Assert.IsTrue(result);
-        }
-
-        [Test]
         public void AlwaysModerate_WhileAlreadyRecording_StillReturnsTrue()
         {
             // The !_isRecording guard in Update() is what prevents a double-start, not this.
             bool result = PlaySafeRecordingDecision.ShouldRecord(
                 alwaysModerate: true,
                 isEditorDebugRecord: false,
-                shouldRecordPlayTestNotes: false,
                 isRecording: true,
                 secondsSinceLastRecording: 0,
                 recordingIntermissionSeconds: int.MaxValue,
@@ -267,7 +201,6 @@ namespace _DL.PlaySafe.Tests
             bool result = PlaySafeRecordingDecision.ShouldRecord(
                 alwaysModerate: true,
                 isEditorDebugRecord: false, // Application.isEditor && debugEnableRecord == false
-                shouldRecordPlayTestNotes: false,
                 isRecording: false,
                 secondsSinceLastRecording: 0,
                 recordingIntermissionSeconds: int.MaxValue,
@@ -281,7 +214,6 @@ namespace _DL.PlaySafe.Tests
             bool whenTrue = PlaySafeRecordingDecision.ShouldRecord(
                 alwaysModerate: true,
                 isEditorDebugRecord: false,
-                shouldRecordPlayTestNotes: false,
                 isRecording: true,
                 secondsSinceLastRecording: 0,
                 recordingIntermissionSeconds: 60,
@@ -289,7 +221,6 @@ namespace _DL.PlaySafe.Tests
             bool whenFalse = PlaySafeRecordingDecision.ShouldRecord(
                 alwaysModerate: false,
                 isEditorDebugRecord: false,
-                shouldRecordPlayTestNotes: false,
                 isRecording: true,
                 secondsSinceLastRecording: 0,
                 recordingIntermissionSeconds: 60,
