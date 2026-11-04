@@ -775,45 +775,6 @@ namespace _DL.PlaySafe
             }
         }
 
-        // TODO: Deprecate this method in favor of the async version + mention the removal of the reporter user id argument
-        [Obsolete("Use ReportPlayerAsync instead. The reporterUserId parameter has been removed and is now automatically retrieved from telemetry. This method will be removed in a future version.")]
-        /// <summary>
-        /// Reports a user via a POST call.
-        /// </summary>
-        public IEnumerator ReportUser(string reporterUserId, string targetUserId, string eventType)
-        {
-            PlayerReportRequest reportRequest = new PlayerReportRequest
-            {
-                reporterPlayerUserId = reporterUserId,
-                targetPlayerUserId = targetUserId,
-                source = ModerationSource.UNITY_SDK,
-                platform = ModerationPlatform.IN_GAME
-            };
-
-            string json = JsonConvert.SerializeObject(reportRequest);
-            byte[] jsonToSend = new System.Text.UTF8Encoding().GetBytes(json);
-            string url = AddTokenToUrl(PlaysafeBaseURL + ReportEndpoint + "/" + eventType);
-
-            UnityWebRequest www = new UnityWebRequest(url, "POST");
-            www.uploadHandler = new UploadHandlerRaw(jsonToSend);
-            www.downloadHandler = new DownloadHandlerBuffer();
-            www.SetRequestHeader("Content-Type", "application/json");
-            www.SetRequestHeader("Authorization", "Bearer " + appKey);
-
-            yield return www.SendWebRequest();
-
-            if (www.result != UnityWebRequest.Result.Success)
-            {
-                LogError("ReportUser error: " + www.error);
-                Log(www.downloadHandler.text);
-            }
-            else
-            {
-                Log("PlaySafeManager: Report upload complete!");
-                Log(www.downloadHandler.text);
-            }
-        }
-
         /// <summary>
         /// Adds a moderation event (report, mute, block) against a user via a POST call (async version).
         /// </summary>
