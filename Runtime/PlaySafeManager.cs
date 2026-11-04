@@ -775,57 +775,18 @@ namespace _DL.PlaySafe
             }
         }
 
-        // TODO: Deprecate this method in favor of the async version + mention the removal of the reporter user id argument
-        [Obsolete("Use ReportUserAsync instead. The reporterUserId parameter has been removed and is now automatically retrieved from telemetry. This method will be removed in a future version.")]
         /// <summary>
-        /// Reports a user via a POST call.
-        /// </summary>
-        public IEnumerator ReportUser(string reporterUserId, string targetUserId, string eventType)
-        {
-            PlayerReportRequest reportRequest = new PlayerReportRequest
-            {
-                reporterPlayerUserId = reporterUserId,
-                targetPlayerUserId = targetUserId,
-                source = ModerationSource.UNITY_SDK,
-                platform = ModerationPlatform.IN_GAME
-            };
-
-            string json = JsonConvert.SerializeObject(reportRequest);
-            byte[] jsonToSend = new System.Text.UTF8Encoding().GetBytes(json);
-            string url = AddTokenToUrl(PlaysafeBaseURL + ReportEndpoint + "/" + eventType);
-
-            UnityWebRequest www = new UnityWebRequest(url, "POST");
-            www.uploadHandler = new UploadHandlerRaw(jsonToSend);
-            www.downloadHandler = new DownloadHandlerBuffer();
-            www.SetRequestHeader("Content-Type", "application/json");
-            www.SetRequestHeader("Authorization", "Bearer " + appKey);
-
-            yield return www.SendWebRequest();
-
-            if (www.result != UnityWebRequest.Result.Success)
-            {
-                LogError("ReportUser error: " + www.error);
-                Log(www.downloadHandler.text);
-            }
-            else
-            {
-                Log("PlaySafeManager: Report upload complete!");
-                Log(www.downloadHandler.text);
-            }
-        }
-
-        /// <summary>
-        /// Reports a user via a POST call (async version).
+        /// Adds a moderation event (report, mute, block) against a user via a POST call (async version).
         /// </summary>
         [ItemCanBeNull]
-        public async Task<ModerationEventResponse> ReportUserAsync(string targetUserId, string eventType)
+        private async Task<ModerationEventResponse> AddModerationEventAsync(string targetUserId, string eventType, string reason)
         {
             var tcs = new TaskCompletionSource<ModerationEventResponse>();
-            StartCoroutine(ReportUserCoroutine(targetUserId, eventType, tcs));
+            StartCoroutine(AddModerationEventCoroutine(targetUserId, eventType, reason, tcs));
             return await tcs.Task;
         }
 
-        private IEnumerator ReportUserCoroutine(string targetUserId, string eventType, TaskCompletionSource<ModerationEventResponse> tcs)
+        private IEnumerator AddModerationEventCoroutine(string targetUserId, string eventType, string reason, TaskCompletionSource<ModerationEventResponse> tcs)
         {
             string url = AddTokenToUrl($"{PlaysafeBaseURL}{ReportEndpoint}/{eventType}");
 
@@ -834,7 +795,8 @@ namespace _DL.PlaySafe
                 reporterPlayerUserId = GetTelemetry().UserId,
                 targetPlayerUserId = targetUserId,
                 source = ModerationSource.UNITY_SDK,
-                platform = ModerationPlatform.IN_GAME
+                platform = ModerationPlatform.IN_GAME,
+                reason = reason
             };
 
             string json = JsonConvert.SerializeObject(reportRequest);
@@ -850,7 +812,7 @@ namespace _DL.PlaySafe
 
             if (www.result != UnityWebRequest.Result.Success)
             {
-                LogError("ReportUser error: " + www.error);
+                LogError("AddModerationEvent error: " + www.error);
                 Log(www.downloadHandler.text);
                 tcs.SetResult(null);
             }
@@ -865,7 +827,7 @@ namespace _DL.PlaySafe
                 }
                 catch (Exception ex)
                 {
-                    LogError("Could not parse report user response.");
+                    LogError("Could not parse add moderation event response.");
                     LogException(ex);
                     tcs.SetResult(null);
                 }
@@ -875,13 +837,13 @@ namespace _DL.PlaySafe
         }
 
         /// <summary>
-        /// Undoes a report on a user via a POST call (async version).
+        /// Removes a moderation event (report, mute, block) against a user via a POST call (async version).
         /// </summary>
         [ItemCanBeNull]
-        public async Task<PlaySafeApiResponse> UnReportUserAsync(string targetUserId, string eventType)
+        private async Task<PlaySafeApiResponse> RemoveModerationEventAsync(string targetUserId, string eventType, string reason)
         {
             var tcs = new TaskCompletionSource<PlaySafeApiResponse>();
-            StartCoroutine(UnReportUserCoroutine(targetUserId, eventType, tcs));
+            StartCoroutine(RemoveModerationEventCoroutine(targetUserId, eventType, reason, tcs));
             return await tcs.Task;
         }
 
@@ -889,57 +851,57 @@ namespace _DL.PlaySafe
         /// Reports a player.
         /// </summary>
         [ItemCanBeNull]
-        public async Task<ModerationEventResponse> ReportPlayerAsync(string targetUserId)
+        public async Task<ModerationEventResponse> ReportPlayerAsync(string targetUserId, string reason = null)
         {
-            return await ReportUserAsync(targetUserId, ModerationEventType.Report);
+            return await AddModerationEventAsync(targetUserId, ModerationEventType.Report, reason);
         }
 
         /// <summary>
         /// Undoes a report on a player.
         /// </summary>
         [ItemCanBeNull]
-        public async Task<PlaySafeApiResponse> UndoReportPlayerAsync(string targetUserId)
+        public async Task<PlaySafeApiResponse> UndoReportPlayerAsync(string targetUserId, string reason = null)
         {
-            return await UnReportUserAsync(targetUserId, ModerationEventType.Report);
+            return await RemoveModerationEventAsync(targetUserId, ModerationEventType.Report, reason);
         }
 
         /// <summary>
         /// Mutes a player.
         /// </summary>
         [ItemCanBeNull]
-        public async Task<ModerationEventResponse> MutePlayerAsync(string targetUserId)
+        public async Task<ModerationEventResponse> MutePlayerAsync(string targetUserId, string reason = null)
         {
-            return await ReportUserAsync(targetUserId, ModerationEventType.Mute);
+            return await AddModerationEventAsync(targetUserId, ModerationEventType.Mute, reason);
         }
 
         /// <summary>
         /// Unmutes a player.
         /// </summary>
         [ItemCanBeNull]
-        public async Task<PlaySafeApiResponse> UnmutePlayerAsync(string targetUserId)
+        public async Task<PlaySafeApiResponse> UnmutePlayerAsync(string targetUserId, string reason = null)
         {
-            return await UnReportUserAsync(targetUserId, ModerationEventType.Mute);
+            return await RemoveModerationEventAsync(targetUserId, ModerationEventType.Mute, reason);
         }
 
         /// <summary>
         /// Blocks a player.
         /// </summary>
         [ItemCanBeNull]
-        public async Task<ModerationEventResponse> BlockPlayerAsync(string targetUserId)
+        public async Task<ModerationEventResponse> BlockPlayerAsync(string targetUserId, string reason = null)
         {
-            return await ReportUserAsync(targetUserId, ModerationEventType.Block);
+            return await AddModerationEventAsync(targetUserId, ModerationEventType.Block, reason);
         }
 
         /// <summary>
         /// Unblocks a player.
         /// </summary>
         [ItemCanBeNull]
-        public async Task<PlaySafeApiResponse> UnblockPlayerAsync(string targetUserId)
+        public async Task<PlaySafeApiResponse> UnblockPlayerAsync(string targetUserId, string reason = null)
         {
-            return await UnReportUserAsync(targetUserId, ModerationEventType.Block);
+            return await RemoveModerationEventAsync(targetUserId, ModerationEventType.Block, reason);
         }
 
-        private IEnumerator UnReportUserCoroutine(string targetUserId, string eventType, TaskCompletionSource<PlaySafeApiResponse> tcs)
+        private IEnumerator RemoveModerationEventCoroutine(string targetUserId, string eventType, string reason, TaskCompletionSource<PlaySafeApiResponse> tcs)
         {
             string url = AddTokenToUrl($"{PlaysafeBaseURL}{ReportEndpoint}/{eventType}/undo");
 
@@ -948,7 +910,8 @@ namespace _DL.PlaySafe
                 reporterPlayerUserId = GetTelemetry().UserId,
                 targetPlayerUserId = targetUserId,
                 source = ModerationSource.UNITY_SDK,
-                platform = ModerationPlatform.IN_GAME
+                platform = ModerationPlatform.IN_GAME,
+                reason = reason
             };
 
             string json = JsonConvert.SerializeObject(reportRequest);
@@ -964,7 +927,7 @@ namespace _DL.PlaySafe
 
             if (www.result != UnityWebRequest.Result.Success)
             {
-                LogError("UnReportUser error: " + www.error);
+                LogError("RemoveModerationEvent error: " + www.error);
                 Log(www.downloadHandler.text);
                 tcs.SetResult(null);
             }
@@ -972,14 +935,14 @@ namespace _DL.PlaySafe
             {
                 try
                 {
-                    Log("PlaySafeManager: UnReport upload complete!");
+                    Log("PlaySafeManager: Remove moderation event complete!");
                     Log(www.downloadHandler.text);
                     var result = JsonConvert.DeserializeObject<PlaySafeApiResponse>(www.downloadHandler.text);
                     tcs.SetResult(result);
                 }
                 catch (Exception ex)
                 {
-                    LogError("Could not parse unreport user response.");
+                    LogError("Could not parse remove moderation event response.");
                     LogException(ex);
                     tcs.SetResult(null);
                 }
@@ -1594,6 +1557,10 @@ namespace _DL.PlaySafe
             public string targetPlayerUserId;
             public ModerationSource source;
             public ModerationPlatform platform;
+
+            /// <summary>Optional reason for the moderation event; omitted from the payload when null.</summary>
+            [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+            public string reason;
         }
 
         public class AudioEventRequestData
@@ -1658,7 +1625,6 @@ namespace _DL.PlaySafe
 
         public async Task<PlayerAuthTokenResponse?> SetCustomAuth()
         {
-            // Note: We don't use AddTokenToUrl here since we're getting the token in the first place
             // Note: We don't use AddTokenToUrl here since we're getting the token in the first place
             string url = $"{PlaysafeBaseURL}/auth-urls/player-auth-token";
             string playerUserId = GetTelemetry().UserId;
