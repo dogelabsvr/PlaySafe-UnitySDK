@@ -794,8 +794,8 @@ namespace _DL.PlaySafe
             {
                 reporterPlayerUserId = GetTelemetry().UserId,
                 targetPlayerUserId = targetUserId,
-                source = ModerationSource.UNITY_SDK,
-                platform = ModerationPlatform.IN_GAME,
+                source = ModerationSource.UNITY_SDK.Value,
+                platform = ModerationPlatform.IN_GAME.Value,
                 reason = reason
             };
 
@@ -909,8 +909,8 @@ namespace _DL.PlaySafe
             {
                 reporterPlayerUserId = GetTelemetry().UserId,
                 targetPlayerUserId = targetUserId,
-                source = ModerationSource.UNITY_SDK,
-                platform = ModerationPlatform.IN_GAME,
+                source = ModerationSource.UNITY_SDK.Value,
+                platform = ModerationPlatform.IN_GAME.Value,
                 reason = reason
             };
 
@@ -1345,8 +1345,8 @@ namespace _DL.PlaySafe
             {
                 playerUsername,
                 appealReason = !string.IsNullOrEmpty(appealReason) ? appealReason : null,
-                source = ModerationSource.UNITY_SDK,
-                platform = ModerationPlatform.IN_GAME
+                source = ModerationSource.UNITY_SDK.Value,
+                platform = ModerationPlatform.IN_GAME.Value
             };
 
             var response = await SendApiRequest<BanAppealResponse>(url, new ApiRequestOptions
@@ -1410,8 +1410,8 @@ namespace _DL.PlaySafe
                 description,
                 actionByPlayerUserId = telemetry.UserId,
                 actionByPlayerUsername = telemetry.UserName,
-                source = ModerationSource.UNITY_SDK,
-                platform = ModerationPlatform.IN_GAME
+                source = ModerationSource.UNITY_SDK.Value,
+                platform = ModerationPlatform.IN_GAME.Value
             };
 
             var response = await SendApiRequest<ManualActionResponse>(url, new ApiRequestOptions
@@ -1555,8 +1555,8 @@ namespace _DL.PlaySafe
         {
             public string reporterPlayerUserId;
             public string targetPlayerUserId;
-            public ModerationSource source;
-            public ModerationPlatform platform;
+            public string source;
+            public string platform;
 
             /// <summary>Optional reason for the moderation event; omitted from the payload when null.</summary>
             [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
