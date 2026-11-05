@@ -808,7 +808,10 @@ namespace _DL.PlaySafe
                 if (www.result != UnityWebRequest.Result.Success)
                 {
                     LogError($"PlaySafeManager: {www.error}");
-                    Log(www.downloadHandler.text);
+                    // The body says why the backend refused the upload; keep it at error level, but bounded.
+                    string errorBody = www.downloadHandler?.text;
+                    if (!string.IsNullOrEmpty(errorBody))
+                        LogError($"PlaySafeManager: {errorBody.Substring(0, Math.Min(errorBody.Length, 1024))}");
                 }
                 else
                 {
