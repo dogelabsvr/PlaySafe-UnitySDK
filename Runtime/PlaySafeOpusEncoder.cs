@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Threading.Tasks;
 using Concentus;
 using Concentus.Enums;
 using Concentus.Structs;
@@ -16,9 +15,9 @@ namespace _DL.PlaySafe
     //      and was being paid on every recording window.
     //   2. Drop complexity from the default 10 to 5 (Xiph's mobile-VOIP recommendation). Lower
     //      complexity skips iterations of the noise-shaped quantizer and pitch search.
-    //   3. Run Encode on a thread-pool worker via EncodeAsync. The Unity coroutine polls
-    //      IsCompleted with `yield return null`, so the main thread keeps ticking frames at
-    //      full rate even while the encoder is mid-buffer.
+    //   3. Run Encode on a thread-pool worker (PlaySafeManager does Task.Run on its own sample
+    //      snapshot). The Unity coroutine polls IsCompleted with `yield return null`, so the main
+    //      thread keeps ticking frames at full rate even while the encoder is mid-buffer.
     internal static class PlaySafeOpusEncoder
     {
         private const int Channels = 1;
@@ -60,8 +59,8 @@ namespace _DL.PlaySafe
 
         /// <summary>
         /// Synchronous encode. Holds an internal lock so concurrent calls serialize. Safe to call
-        /// from any thread (no Unity API access, no P/Invoke, no I/O). Prefer EncodeAsync from
-        /// the main thread to avoid blocking the frame.
+        /// from any thread (no Unity API access, no P/Invoke, no I/O). Call it off the main thread
+        /// to avoid blocking the frame.
         /// </summary>
         internal static (byte[] blob, int packetCount) Encode(float[] samples, int sampleCount, int sampleRate)
         {
@@ -111,22 +110,6 @@ namespace _DL.PlaySafe
 
                 return (_outputStream.ToArray(), packetCount);
             }
-        }
-
-        /// <summary>
-        /// Runs <see cref="Encode"/> on a thread-pool worker so the Unity main thread does not
-        /// stall. The caller should poll the returned Task from a coroutine via `IsCompleted`.
-        /// </summary>
-        internal static Task<(byte[] blob, int packetCount)> EncodeAsync(float[] samples, int sampleCount, int sampleRate)
-        {
-            // Snapshot to a worker-owned array. The recording buffer (audioBufferFromExistingMic)
-            // can be repointed by the next StartRecording, and the Photon audio thread may still
-            // tail-write the buffer when StopRecording flips _isRecording. Owning a copy avoids
-            // both races without requiring locking on the caller.
-            float[] owned = new float[sampleCount];
-            Array.Copy(samples, 0, owned, 0, sampleCount);
-
-            return Task.Run(() => Encode(owned, sampleCount, sampleRate));
         }
     }
 }
