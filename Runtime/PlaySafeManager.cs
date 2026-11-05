@@ -38,6 +38,8 @@ namespace _DL.PlaySafe
         private bool _isInitialized = false;
         private bool _isPlayerDev = false;
         private bool _isFetchingPlayerDevStatus = false;
+        private bool _loggedNotInitialized = false;
+        private bool _loggedNoMicPermission = false;
 
         /// <summary>
         /// Must be set to a delegate that returns whether recording is permitted.
@@ -192,17 +194,27 @@ namespace _DL.PlaySafe
         {
             UpdateDebugInfo();
 
+            // These run every frame until the condition clears, so log only on the transition.
             if (!_isInitialized)
             {
-                Debug.Log("PlaySafeManager is not initialized");
+                if (!_loggedNotInitialized)
+                {
+                    _loggedNotInitialized = true;
+                    Debug.Log("PlaySafeManager is not initialized");
+                }
                 return;
             }
 
             if (!HasMicrophonePermission())
             {
-                Debug.Log("PlaySafeManager no microphone permissions");
+                if (!_loggedNoMicPermission)
+                {
+                    _loggedNoMicPermission = true;
+                    Debug.Log("PlaySafeManager no microphone permissions");
+                }
                 return;
             }
+            _loggedNoMicPermission = false;
 
             // Track CanRecord state for transition detection
             bool currentCanRecord = CanRecord();
