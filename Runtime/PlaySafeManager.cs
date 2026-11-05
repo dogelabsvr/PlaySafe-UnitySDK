@@ -185,7 +185,8 @@ namespace _DL.PlaySafe
             _photonPlaySafeProcessor = new PhotonPlaySafeProcessor();
             _photonPlaySafeProcessor.playSafeManager = this;
             #endif
-            
+
+            Application.wantsToQuit += OnWantsToQuit;
             StartCoroutine(SendSessionPulseCoroutine());
             StartCoroutine(GetIsPlayerDevCoroutine());
         }
@@ -526,14 +527,16 @@ namespace _DL.PlaySafe
                 Microphone.End(mic);
             }
 
-            if (shouldSendAudioClip && _hasFocus)
+            // Send even without focus: dropping unfocused clips let players say something and then
+            // open the system menu so the clip was discarded instead of moderated.
+            if (shouldSendAudioClip)
             {
                 Log($"[StateMachine] StopRecording: SENDING {GetAccumulatedAudioDuration():F1}s of audio ({_sampleIndex} samples) for processing");
-                StartCoroutine(SendOpusForAnalysisCoroutine());
+                StartCoroutine(SendTrackedOpusForAnalysisCoroutine());
             }
             else
             {
-                LogWarning($"[StateMachine] StopRecording: DISCARDED - shouldSendAudioClip={shouldSendAudioClip}, hasFocus={_hasFocus}, audio={GetAccumulatedAudioDuration():F1}s");
+                LogWarning($"[StateMachine] StopRecording: DISCARDED - shouldSendAudioClip={shouldSendAudioClip}, audio={GetAccumulatedAudioDuration():F1}s");
             }
 
             // Reset all recording state
@@ -607,6 +610,36 @@ namespace _DL.PlaySafe
 
         WaitForEndOfFrame WaitForEndOfFrame = new WaitForEndOfFrame();
         
+        // Counts uploads that are still encoding or in flight, so a quit can wait for them.
+        private int _pendingUploadCount = 0;
+
+        private IEnumerator SendTrackedOpusForAnalysisCoroutine()
+        {
+            _pendingUploadCount++;
+            yield return StartCoroutine(SendOpusForAnalysisCoroutine());
+            _pendingUploadCount--;
+        }
+
+        /// <summary>
+        /// Stops the current recording and sends what has been buffered so far, so audio isn't lost
+        /// when the app loses focus, is paused or quits before the 10s window fills.
+        /// </summary>
+        private void FlushBufferedAudio(string reason)
+        {
+            if (!_isRecording)
+                return;
+
+            // Below the minimum, keep buffering: the normal 10s / pause-timeout path sends it later.
+            if (GetAccumulatedAudioDuration() < MinimumAudioDurationSeconds)
+            {
+                Log($"[StateMachine] Not flushing ({reason}, {GetAccumulatedAudioDuration():F1}s of audio < {MinimumAudioDurationSeconds}s)");
+                return;
+            }
+
+            Log($"[StateMachine] -> SEND ({reason}, {GetAccumulatedAudioDuration():F1}s of audio)");
+            StopRecording(true);
+        }
+
         private IEnumerator SendOpusForAnalysisCoroutine()
         {
             if (_sampleIndex == 0)
@@ -963,12 +996,13 @@ namespace _DL.PlaySafe
             www.Dispose();
         }
 
-        private bool _hasFocus = true;
         private void OnApplicationFocus(bool hasFocus)
         {
-            if (!Application.isEditor)
+            // Send now: losing focus (system menu, headset off) often comes right before
+            // a pause or quit, which would otherwise lose the buffered audio.
+            if (!hasFocus && !Application.isEditor)
             {
-                _hasFocus = hasFocus;
+                FlushBufferedAudio("app lost focus");
             }
 
             if (hasFocus)
@@ -979,15 +1013,50 @@ namespace _DL.PlaySafe
 
         private void OnApplicationPause(bool pauseStatus)
         {
-            // if (pauseStatus)
-            // {
-            //     StopRecording();
-            // }
+            // The upload resumes with the app if it is paused before the request finishes.
+            if (pauseStatus && !Application.isEditor)
+            {
+                FlushBufferedAudio("app paused");
+            }
         }
 
-        private  void OnApplicationQuit()
+        private const float QuitUploadTimeoutSeconds = 3f;
+        private bool _isDelayingQuit = false;
+        private bool _allowQuit = false;
+
+        // Hold an app-initiated quit briefly so buffered audio is sent instead of lost.
+        // Players could otherwise say something and quit before the clip was uploaded.
+        private bool OnWantsToQuit()
         {
-            // StopRecording();
+            if (_allowQuit || Application.isEditor)
+                return true;
+
+            FlushBufferedAudio("app quitting");
+            if (_pendingUploadCount <= 0)
+                return true;
+
+            if (!_isDelayingQuit)
+            {
+                _isDelayingQuit = true;
+                StartCoroutine(QuitAfterPendingUploadsCoroutine());
+            }
+            return false;
+        }
+
+        private IEnumerator QuitAfterPendingUploadsCoroutine()
+        {
+            float deadline = Time.realtimeSinceStartup + QuitUploadTimeoutSeconds;
+            while (_pendingUploadCount > 0 && Time.realtimeSinceStartup < deadline)
+                yield return null;
+
+            Log($"PlaySafeManager: Quitting (pending uploads: {_pendingUploadCount})");
+            _allowQuit = true;
+            Application.Quit();
+        }
+
+        private void OnDestroy()
+        {
+            Application.wantsToQuit -= OnWantsToQuit;
         }
         
         #endregion
