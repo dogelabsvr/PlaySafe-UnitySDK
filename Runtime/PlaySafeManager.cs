@@ -106,6 +106,9 @@ namespace _DL.PlaySafe
                 LogError("PlaySafeManager: No microphone found");
             }
             StartCoroutine(GetProductAIConfig());
+            // Started here rather than in Start: both read GetTelemetry, which Initialize requires.
+            StartCoroutine(SendSessionPulseCoroutine());
+            StartCoroutine(GetIsPlayerDevCoroutine());
             _lastRecording.Restart();
         }
 
@@ -156,9 +159,15 @@ namespace _DL.PlaySafe
         private long _appendPausedDropCount = 0;
         #endif
 
-        public float[] audioBufferFromExistingMic;
-
+        // AppendToBuffer runs on Photon's encoder thread while the main thread snapshots and
+        // replaces the buffer, so the buffer and _sampleIndex are only touched under _bufferLock.
+        private readonly object _bufferLock = new object();
+        private float[] _audioBuffer = Array.Empty<float>();
         private int _sampleIndex = 0;
+
+        // Captured in StartRecording, while CanRecord guarantees a user in a room. The clip is
+        // sent after the window closes, when the player may already have left that room.
+        private AudioEventRequestData _recordingTelemetry;
 
         // Pause/Resume recording fields
         private bool _isPaused = false;
@@ -187,8 +196,6 @@ namespace _DL.PlaySafe
             #endif
 
             Application.wantsToQuit += OnWantsToQuit;
-            StartCoroutine(SendSessionPulseCoroutine());
-            StartCoroutine(GetIsPlayerDevCoroutine());
         }
 
         private void Update()
@@ -229,8 +236,18 @@ namespace _DL.PlaySafe
             // State transitions: Paused -> Recording (when CanRecord becomes true)
             else if (_isRecording && _isPaused && currentCanRecord)
             {
-                Log($"[StateMachine] PAUSED -> RECORDING (CanRecord became true, total pause time: {_pauseTimer.Elapsed.TotalSeconds:F1}s)");
-                ResumeRecording();
+                // A clip is labelled with the room it started in, so it must not carry on into another room.
+                if (GetTelemetry().RoomId != _recordingTelemetry.RoomId)
+                {
+                    bool hasMinimumAudio = GetAccumulatedAudioDuration() >= MinimumAudioDurationSeconds;
+                    Log($"[StateMachine] PAUSED -> {(hasMinimumAudio ? "SEND" : "DISCARD")} (room changed, {GetAccumulatedAudioDuration():F1}s of audio)");
+                    StopRecording(hasMinimumAudio);
+                }
+                else
+                {
+                    Log($"[StateMachine] PAUSED -> RECORDING (CanRecord became true, total pause time: {_pauseTimer.Elapsed.TotalSeconds:F1}s)");
+                    ResumeRecording();
+                }
             }
 
             // Check total pause time: if cumulative pause time exceeds threshold, stop and send what we have
@@ -366,6 +383,8 @@ namespace _DL.PlaySafe
             if (GetMicrophoneDeviceCount() <= 0)
                 return;
 
+            _recordingTelemetry = GetTelemetry();
+
             if (!isUsingExistingUnityMic)
             {
                 // For Unity Microphone path: set sample rate and create buffer
@@ -424,16 +443,9 @@ namespace _DL.PlaySafe
                     // Extract samples from the AudioClip
                     float[] samples = new float[currentPosition];
                     _audioClipRecording.GetData(samples, 0);
+                    CopyToBuffer(samples);
 
-                    // Copy to buffer if there's room
-                    int samplesToCopy = Mathf.Min(samples.Length, audioBufferFromExistingMic.Length - _sampleIndex);
-                    if (samplesToCopy > 0)
-                    {
-                        System.Array.Copy(samples, 0, audioBufferFromExistingMic, _sampleIndex, samplesToCopy);
-                        _sampleIndex += samplesToCopy;
-                    }
-
-                    Log($"[StateMachine] PauseRecording: extracted {samplesToCopy} samples from Unity Microphone");
+                    Log($"[StateMachine] PauseRecording: extracted {samples.Length} samples from Unity Microphone");
                 }
 
                 Microphone.End(mic);
@@ -466,10 +478,17 @@ namespace _DL.PlaySafe
         
         private void CreateNewBuffer ()
         {
-            audioBufferFromExistingMic = new float[sampleRate * channelCount * RecordingDurationSeconds]; // 10 seconds of audio
-            _sampleIndex = 0;
+            float[] buffer = new float[sampleRate * channelCount * RecordingDurationSeconds]; // 10 seconds of audio
+            lock (_bufferLock)
+            {
+                _audioBuffer = buffer;
+                _sampleIndex = 0;
+            }
         }
-        
+
+        /// <summary>
+        /// Called by PhotonPlaySafeProcessor on Photon's encoder thread.
+        /// </summary>
         public void AppendToBuffer(float[] newData)
         {
             // Guard: only append when actively recording (not paused, not stopped)
@@ -481,13 +500,30 @@ namespace _DL.PlaySafe
                 #endif
                 return;
             }
-            if (audioBufferFromExistingMic == null) return;
+            CopyToBuffer(newData);
+        }
 
-            int newDataLength = newData.Length;
-            if (newDataLength > 0 && _sampleIndex + newDataLength < audioBufferFromExistingMic.Length)
+        // Appends as much as fits: the buffer is sized for the whole 10s window.
+        private void CopyToBuffer(float[] samples)
+        {
+            lock (_bufferLock)
             {
-                System.Array.Copy(newData, 0, audioBufferFromExistingMic, _sampleIndex, newData.Length);
-                _sampleIndex += newDataLength;
+                int count = Math.Min(samples.Length, _audioBuffer.Length - _sampleIndex);
+                if (count <= 0) return;
+                Array.Copy(samples, 0, _audioBuffer, _sampleIndex, count);
+                _sampleIndex += count;
+            }
+        }
+
+        // The send owns its copy: Photon may still append until _isRecording flips, and the
+        // next StartRecording replaces the buffer.
+        private float[] SnapshotBuffer()
+        {
+            lock (_bufferLock)
+            {
+                float[] samples = new float[_sampleIndex];
+                Array.Copy(_audioBuffer, samples, _sampleIndex);
+                return samples;
             }
         }
         
@@ -515,13 +551,7 @@ namespace _DL.PlaySafe
                 {
                     float[] samples = new float[currentPosition];
                     _audioClipRecording.GetData(samples, 0);
-
-                    int samplesToCopy = Mathf.Min(samples.Length, audioBufferFromExistingMic.Length - _sampleIndex);
-                    if (samplesToCopy > 0)
-                    {
-                        System.Array.Copy(samples, 0, audioBufferFromExistingMic, _sampleIndex, samplesToCopy);
-                        _sampleIndex += samplesToCopy;
-                    }
+                    CopyToBuffer(samples);
                 }
 
                 Microphone.End(mic);
@@ -531,8 +561,16 @@ namespace _DL.PlaySafe
             // open the system menu so the clip was discarded instead of moderated.
             if (shouldSendAudioClip)
             {
-                Log($"[StateMachine] StopRecording: SENDING {GetAccumulatedAudioDuration():F1}s of audio ({_sampleIndex} samples) for processing");
-                StartCoroutine(SendTrackedOpusForAnalysisCoroutine());
+                float[] samples = SnapshotBuffer();
+                if (samples.Length == 0)
+                {
+                    LogEmptyWindow();
+                }
+                else
+                {
+                    Log($"[StateMachine] StopRecording: SENDING {GetAccumulatedAudioDuration():F1}s of audio ({samples.Length} samples) for processing");
+                    StartCoroutine(SendOpusForAnalysisCoroutine(samples, sampleRate, channelCount, _recordingTelemetry));
+                }
             }
             else
             {
@@ -589,13 +627,16 @@ namespace _DL.PlaySafe
         /// <summary>
         /// Prepares a WWWForm with telemetry data.
         /// </summary>
-        private WWWForm SetupForm()
+        private WWWForm SetupForm(AudioEventRequestData telemetry)
         {
-            AudioEventRequestData telemetry = GetTelemetry();
             WWWForm form = new WWWForm();
-            
+
             form.AddField("userId", telemetry.UserId);
-            form.AddField("roomId", telemetry.RoomId);
+            // Null when there is no room, e.g. a text send or a debug recording outside a match.
+            if (telemetry.RoomId != null)
+            {
+                form.AddField("roomId", telemetry.RoomId);
+            }
             form.AddField("source", ModerationSource.UNITY_SDK.Value);
             form.AddField("platform", ModerationPlatform.IN_GAME.Value);
             form.AddField("language", Application.systemLanguage.ToString());
@@ -612,13 +653,6 @@ namespace _DL.PlaySafe
         
         // Counts uploads that are still encoding or in flight, so a quit can wait for them.
         private int _pendingUploadCount = 0;
-
-        private IEnumerator SendTrackedOpusForAnalysisCoroutine()
-        {
-            _pendingUploadCount++;
-            yield return StartCoroutine(SendOpusForAnalysisCoroutine());
-            _pendingUploadCount--;
-        }
 
         /// <summary>
         /// Stops the current recording and sends what has been buffered so far, so audio isn't lost
@@ -640,134 +674,126 @@ namespace _DL.PlaySafe
             StopRecording(true);
         }
 
-        private IEnumerator SendOpusForAnalysisCoroutine()
+        private void LogEmptyWindow()
         {
-            if (_sampleIndex == 0)
+            #if PHOTON_VOICE_DEFINED
+            if (isUsingExistingUnityMic)
             {
-                #if PHOTON_VOICE_DEFINED
-                if (isUsingExistingUnityMic)
-                {
-                    // Match main's graceful behavior: Photon may not have delivered any frames in this window
-                    // (voice not yet active, muted, between recorder sessions, etc.). Skip the upload quietly
-                    // and surface the Photon processor counters at Log level for debugging.
-                    var stats = _photonPlaySafeProcessor != null
-                        ? _photonPlaySafeProcessor.GetStatsSnapshot()
-                        : default;
-                    long pausedDrops = Interlocked.Read(ref _appendPausedDropCount);
-                    Log($"PlaySafeManager: No audio samples recorded in Photon window, skipping upload. " +
-                        $"[photonProcessorAttached={_photonProcessorAttached}, processorCalls={stats.ProcessCallCount}, " +
-                        $"totalSamples={stats.TotalSamplesSeen}, nonSilentSamples={stats.NonSilentSampleCount}, " +
-                        $"appendPausedDrops={pausedDrops}]");
-                }
-                else
-                #endif
-                {
-                    Log("PlaySafeManager: No audio samples recorded, skipping upload.");
-                }
-                yield break;
+                // Photon may not have delivered any frames in this window (voice not yet active, muted,
+                // between recorder sessions, etc.). Skip the upload quietly and surface the Photon
+                // processor counters at Log level for debugging.
+                var stats = _photonPlaySafeProcessor != null
+                    ? _photonPlaySafeProcessor.GetStatsSnapshot()
+                    : default;
+                long pausedDrops = Interlocked.Read(ref _appendPausedDropCount);
+                Log($"PlaySafeManager: No audio samples recorded in Photon window, skipping upload. " +
+                    $"[photonProcessorAttached={_photonProcessorAttached}, processorCalls={stats.ProcessCallCount}, " +
+                    $"totalSamples={stats.TotalSamplesSeen}, nonSilentSamples={stats.NonSilentSampleCount}, " +
+                    $"appendPausedDrops={pausedDrops}]");
+                return;
             }
+            #endif
+            Log("PlaySafeManager: No audio samples recorded, skipping upload.");
+        }
 
-            // Single pass: peak magnitude + above-threshold check. Peak is logged on skip so the
-            // actual audio level is visible when tuning _silenceThreshold (e.g. via remote config).
-            float peak = 0f;
-            for (int i = 0; i < _sampleIndex; i++)
-            {
-                float abs = Mathf.Abs(audioBufferFromExistingMic[i]);
-                if (abs > peak) peak = abs;
-            }
-            if (peak <= _silenceThreshold)
-            {
-                Log($"PlaySafeManager: Audio below silence threshold (peak={peak:F5}, threshold={_silenceThreshold:F5}). Skipping Opus upload.");
-                yield break;
-            }
-
-            // Opus (via Concentus) supports 8/12/16/24/48 kHz, but FrameSize=960 only produces valid
-            // frame durations at 16/24/48 kHz. Reject other rates before the encoder throws.
-            int effectiveSampleRate = sampleRate;
-            if (effectiveSampleRate != 16000 && effectiveSampleRate != 24000 && effectiveSampleRate != 48000)
-            {
-                LogError($"PlaySafeManager: Unsupported sampleRate {effectiveSampleRate}Hz for Opus encoder. " +
-                         "Expected 16000, 24000, or 48000. Configure Photon Recorder.SamplingRate accordingly.");
-                yield break;
-            }
-
-            // The Opus encoder is mono-only. If Photon delivered multi-channel audio (interleaved), downmix
-            // to mono by averaging channels so we don't encode interleaved frames as if they were mono.
-            float[] encodeBuffer;
-            int encodeSampleCount;
-            if (channelCount <= 1)
-            {
-                encodeBuffer = audioBufferFromExistingMic;
-                encodeSampleCount = _sampleIndex;
-            }
-            else
-            {
-                encodeSampleCount = _sampleIndex / channelCount;
-                encodeBuffer = new float[encodeSampleCount];
-                for (int i = 0; i < encodeSampleCount; i++)
-                {
-                    float sum = 0f;
-                    int baseIdx = i * channelCount;
-                    for (int c = 0; c < channelCount; c++)
-                    {
-                        sum += audioBufferFromExistingMic[baseIdx + c];
-                    }
-                    encodeBuffer[i] = sum / channelCount;
-                }
-            }
-
-            // Encode on a worker thread so the Unity main thread doesn't freeze. Concentus's
-            // Encode is pure managed C# (~40-50% of native libopus speed per the maintainer)
-            // and a 10s buffer can take hundreds of ms — seconds on lower-end Android. The
-            // coroutine polls IsCompleted with `yield return null`, so frame ticks continue
-            // running while the encode is in flight.
-            Task<(byte[] blob, int packetCount)> encodeTask;
+        // Takes everything it sends as arguments, captured when the window closed, so a room change,
+        // a Photon voice teardown or the next window can't alter a clip that is still encoding.
+        private IEnumerator SendOpusForAnalysisCoroutine(float[] samples, int sampleRate, int channels,
+            AudioEventRequestData telemetry)
+        {
+            _pendingUploadCount++;
+            // finally also runs when the send fails, so a quit never waits on an upload that died.
             try
             {
-                encodeTask = PlaySafeOpusEncoder.EncodeAsync(encodeBuffer, encodeSampleCount, effectiveSampleRate);
+                // Single pass: peak magnitude + above-threshold check. Peak is logged on skip so the
+                // actual audio level is visible when tuning _silenceThreshold (e.g. via remote config).
+                float peak = 0f;
+                for (int i = 0; i < samples.Length; i++)
+                {
+                    float abs = Mathf.Abs(samples[i]);
+                    if (abs > peak) peak = abs;
+                }
+                if (peak <= _silenceThreshold)
+                {
+                    Log($"PlaySafeManager: Audio below silence threshold (peak={peak:F5}, threshold={_silenceThreshold:F5}). Skipping Opus upload.");
+                    yield break;
+                }
+
+                // Opus (via Concentus) supports 8/12/16/24/48 kHz, but FrameSize=960 only produces valid
+                // frame durations at 16/24/48 kHz. Reject other rates before the encoder throws.
+                if (sampleRate != 16000 && sampleRate != 24000 && sampleRate != 48000)
+                {
+                    LogError($"PlaySafeManager: Unsupported sampleRate {sampleRate}Hz for Opus encoder. " +
+                             "Expected 16000, 24000, or 48000. Configure Photon Recorder.SamplingRate accordingly.");
+                    yield break;
+                }
+
+                // The Opus encoder is mono-only. If Photon delivered multi-channel audio (interleaved), downmix
+                // to mono by averaging channels so we don't encode interleaved frames as if they were mono.
+                float[] monoSamples = samples;
+                if (channels > 1)
+                {
+                    monoSamples = new float[samples.Length / channels];
+                    for (int i = 0; i < monoSamples.Length; i++)
+                    {
+                        float sum = 0f;
+                        int baseIdx = i * channels;
+                        for (int c = 0; c < channels; c++)
+                        {
+                            sum += samples[baseIdx + c];
+                        }
+                        monoSamples[i] = sum / channels;
+                    }
+                }
+
+                // Encode on a worker thread so the Unity main thread doesn't freeze. Concentus's
+                // Encode is pure managed C# (~40-50% of native libopus speed per the maintainer)
+                // and a 10s buffer can take hundreds of ms — seconds on lower-end Android. The
+                // coroutine polls IsCompleted with `yield return null`, so frame ticks continue
+                // running while the encode is in flight. The samples are this send's own copy.
+                Task<(byte[] blob, int packetCount)> encodeTask =
+                    Task.Run(() => PlaySafeOpusEncoder.Encode(monoSamples, monoSamples.Length, sampleRate));
+
+                while (!encodeTask.IsCompleted)
+                    yield return null;
+
+                if (encodeTask.IsFaulted)
+                {
+                    LogError($"PlaySafeManager: Opus encode failed: {encodeTask.Exception?.GetBaseException().Message}");
+                    yield break;
+                }
+
+                byte[] opusBlob = encodeTask.Result.blob;
+                int packetCount = encodeTask.Result.packetCount;
+
+                if (packetCount == 0)
+                {
+                    LogError("PlaySafeManager: Opus encoder produced 0 packets.");
+                    yield break;
+                }
+
+                WWWForm form = SetupForm(telemetry);
+                form.AddBinaryData("opusChunks", opusBlob, "audio.opus", "application/octet-stream");
+                form.AddField("packetCount", packetCount);
+                form.AddField("sampleRate", sampleRate);
+                form.AddField("channels", 1);
+                form.AddField("estimatedDuration", Math.Max(1, monoSamples.Length / sampleRate));
+
+                yield return WaitForEndOfFrame;
+
+                yield return StartCoroutine(SendFormCoroutine(AddTokenToUrl(OpusModerationEndpoint), form));
             }
-            catch (Exception e)
+            finally
             {
-                LogError($"PlaySafeManager: Failed to start Opus encode task: {e.Message}");
-                yield break;
+                _pendingUploadCount--;
             }
-
-            while (!encodeTask.IsCompleted)
-                yield return null;
-
-            if (encodeTask.IsFaulted)
-            {
-                LogError($"PlaySafeManager: Opus encode failed: {encodeTask.Exception?.GetBaseException().Message}");
-                yield break;
-            }
-
-            byte[] opusBlob = encodeTask.Result.blob;
-            int packetCount = encodeTask.Result.packetCount;
-
-            if (packetCount == 0)
-            {
-                LogError("PlaySafeManager: Opus encoder produced 0 packets.");
-                yield break;
-            }
-
-            yield return WaitForEndOfFrame;
-
-            WWWForm form = SetupForm();
-            form.AddBinaryData("opusChunks", opusBlob, "audio.opus", "application/octet-stream");
-            form.AddField("packetCount", packetCount);
-            form.AddField("sampleRate", effectiveSampleRate);
-            form.AddField("channels", 1);
-            form.AddField("estimatedDuration", Math.Max(1, encodeSampleCount / effectiveSampleRate));
-
-            yield return WaitForEndOfFrame;
-
-            yield return StartCoroutine(SendFormCoroutine(AddTokenToUrl(OpusModerationEndpoint), form));
         }
 
         public IEnumerator SendTextForAnalysisCoroutine(string text)
         {
+            AudioEventRequestData telemetry = GetTelemetry();
             yield return WaitForEndOfFrame;
-            WWWForm form = SetupForm();
+            WWWForm form = SetupForm(telemetry);
             form.AddField("text", text);
             yield return StartCoroutine(SendFormCoroutine(AddTokenToUrl(VoiceModerationEndpoint), form));
         }
@@ -1005,7 +1031,8 @@ namespace _DL.PlaySafe
                 FlushBufferedAudio("app lost focus");
             }
 
-            if (hasFocus)
+            // Before Initialize there is no GetTelemetry; Setup fetches dev status the first time.
+            if (hasFocus && _isInitialized)
             {
                 StartCoroutine(GetIsPlayerDevCoroutine());
             }
@@ -1071,55 +1098,30 @@ namespace _DL.PlaySafe
             {
                 yield return wait; // yields back to Unity; gameplay continues
 
-                var task = SendSessionPulseAsync();
+                AudioEventRequestData telemetry = GetTelemetry();
+                var requestBody = new
+                {
+                    playerUserId = telemetry.UserId,
+                    playerUsername = string.IsNullOrEmpty(telemetry.UserName) ? null : telemetry.UserName
+                };
+                byte[] jsonToSend = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(requestBody));
 
-                // Poll the task without blocking
-                while (!task.IsCompleted)
-                    yield return null; // yield each frame until it’s done
+                using (UnityWebRequest www = new UnityWebRequest(AddTokenToUrl($"{PlaysafeBaseURL}/player/session/pulse"), "POST"))
+                {
+                    www.uploadHandler = new UploadHandlerRaw(jsonToSend);
+                    www.downloadHandler = new DownloadHandlerBuffer();
+                    www.SetRequestHeader("Content-Type", "application/json");
+                    www.SetRequestHeader("Authorization", "Bearer " + appKey);
 
-                if (task.IsFaulted)
-                    Debug.LogException(task.Exception);
+                    Debug.Log($"[SendSessionPulse] Sending session pulse");
+                    yield return www.SendWebRequest();
+
+                    if (www.result != UnityWebRequest.Result.Success)
+                    {
+                        LogError($"SendSessionPulse network error: {www.error}");
+                    }
+                }
             }
-        }
-
-
-        async Task SendSessionPulseAsync()
-        {
-            var tcs = new TaskCompletionSource<bool>();
-            StartCoroutine(SendSessionPulseCoroutineInternal(tcs));
-            await tcs.Task;
-        }
-
-        private IEnumerator SendSessionPulseCoroutineInternal(TaskCompletionSource<bool> tcs)
-        {
-            string url = AddTokenToUrl($"{PlaysafeBaseURL}/player/session/pulse");
-            string playerUserId = GetTelemetry().UserId;
-            string playerUsername = GetTelemetry().UserName;
-
-            var requestBody = new
-            {
-                playerUserId,
-                playerUsername = string.IsNullOrEmpty(playerUsername) ? null : playerUsername
-            };
-            string json = JsonConvert.SerializeObject(requestBody);
-            byte[] jsonToSend = new System.Text.UTF8Encoding().GetBytes(json);
-
-            UnityWebRequest www = new UnityWebRequest(url, "POST");
-            www.uploadHandler = new UploadHandlerRaw(jsonToSend);
-            www.downloadHandler = new DownloadHandlerBuffer();
-            www.SetRequestHeader("Content-Type", "application/json");
-            www.SetRequestHeader("Authorization", "Bearer " + appKey);
-
-            Debug.Log($"[SendSessionPulse] Sending session pulse");
-            yield return www.SendWebRequest();
-
-            if (www.result != UnityWebRequest.Result.Success)
-            {
-                LogError($"SendSessionPulse network error: {www.error}");
-            }
-
-            www.Dispose();
-            tcs.SetResult(true);
         }
         #endregion
         

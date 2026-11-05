@@ -58,10 +58,11 @@ public class PhotonPlaySafeProcessor : IProcessor<float>
     return buf;
   }
 
+  // Photon disposes processors with every LocalVoice (leaving a room, runner teardown, recorder
+  // restart), but this one is shared and re-attached to each new voice. It owns nothing: the
+  // manager's buffer outlives voices so a window that spans a teardown can still be sent.
   public void Dispose ()
   {
-    if (!playSafeManager) return;
-    playSafeManager.audioBufferFromExistingMic = null;
   }
 }
 #endif
