@@ -483,7 +483,6 @@ MonoBehaviour:
   isMicRecording: 0
   shouldRecord: 0
   microphoneDevicesCount: 0
-  audioBufferFromExistingMic: []
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
