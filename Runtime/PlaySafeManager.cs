@@ -177,6 +177,7 @@ namespace _DL.PlaySafe
         private const int PauseTimeoutSeconds = 30;
         private const int MinimumAudioDurationSeconds = 1;
         private const string OpusModerationEndpoint = "/products/moderation/opus";
+        private const string SpeakerAgeOpusEndpoint = "/products/moderation/speaker-age/opus";
         private const int OpusSampleRate = 16000;
 
         #endregion
@@ -184,6 +185,7 @@ namespace _DL.PlaySafe
         #region Custom Auth
         private bool _hasCustomAuth = false;
         private string _authToken = null;
+        private float _speakerAgeRetryAt;
 
         #endregion 
 
@@ -1158,7 +1160,9 @@ namespace _DL.PlaySafe
         {
             public string Method { get; set; } = "GET";
             public object RequestBody { get; set; } = null;
-            // False keeps a successful response (a token, for example) out of the device log.
+            // Sent as multipart form data instead of RequestBody when set (POST only).
+            internal WWWForm Form { get; set; } = null;
+            // False keeps a successful response (a token, an estimate about a person) out of the device log.
             internal bool LogResponseBody { get; set; } = true;
             public string SuccessMessage { get; set; } = null;
             public int TimeoutSeconds { get; set; } = DefaultRequestTimeoutSeconds;
@@ -1170,6 +1174,8 @@ namespace _DL.PlaySafe
             public T Data { get; set; }
             public string ErrorMessage { get; set; }
             public string RawResponse { get; set; }
+            internal long StatusCode { get; set; }
+            internal string RetryAfter { get; set; }
         }
 
         /// <summary>
@@ -1208,6 +1214,10 @@ namespace _DL.PlaySafe
                 if (options.Method.ToUpper() == "GET")
                 {
                     www = UnityWebRequest.Get(url);
+                }
+                else if (options.Method.ToUpper() == "POST" && options.Form != null)
+                {
+                    www = UnityWebRequest.Post(url, options.Form);
                 }
                 else if (options.Method.ToUpper() == "POST")
                 {
@@ -1248,7 +1258,9 @@ namespace _DL.PlaySafe
                 var response = new PlaySafeApiResponse<T>
                 {
                     RawResponse = www.downloadHandler.text,
-                    Success = www.result == UnityWebRequest.Result.Success
+                    Success = www.result == UnityWebRequest.Result.Success,
+                    StatusCode = www.responseCode,
+                    RetryAfter = www.GetResponseHeader("Retry-After")
                 };
 
                 if (!response.Success)
@@ -1583,6 +1595,81 @@ namespace _DL.PlaySafe
             });
 
             return response.Success ? response.Data : null;
+        }
+
+        /// <summary>
+        /// Estimates whether the speaker in a clip sounds like a child or an adult.
+        /// This is an estimate, not age verification: use it to add protections, never on its own
+        /// to grant access or to remove them. Call it from the main thread.
+        /// </summary>
+        /// <param name="samples">PCM samples from -1 to 1, interleaved when there is more than one channel.
+        /// Send at least 8 seconds of the player speaking alone; 30 seconds is the limit.</param>
+        /// <param name="sampleRate">Sample rate of <paramref name="samples"/>, from 8000 to 48000.</param>
+        /// <param name="channels">Number of channels in <paramref name="samples"/>, from 1 to 8.</param>
+        /// <returns>The estimate (its Data is never null), or null when the clip was refused or the request failed (the reason is logged).</returns>
+        [ItemCanBeNull]
+        public async Task<SpeakerAgeResponse> EstimateSpeakerAgeAsync(float[] samples, int sampleRate, int channels = 1)
+        {
+            string problem = PlaySafeSpeakerAgeClip.Validate(samples, sampleRate, channels);
+            if (problem != null)
+            {
+                LogError($"EstimateSpeakerAgeAsync: {problem}");
+                return null;
+            }
+
+            try
+            {
+                if (!CanStartRequest())
+                    return null;
+
+                // A game that retries on null must not encode and upload again while the service is refusing calls.
+                float wait = _speakerAgeRetryAt - Time.realtimeSinceStartup;
+                if (wait > 0f)
+                {
+                    LogWarning($"EstimateSpeakerAgeAsync: the service asked for a pause. Try again in {Mathf.CeilToInt(wait)} s.");
+                    return null;
+                }
+
+                // The encode runs on a worker thread, so it gets its own copy: the caller may reuse the buffer.
+                float[] clip = (float[])samples.Clone();
+                byte[] opusBlob = await Task.Run(() =>
+                {
+                    float[] mono = PlaySafeSpeakerAgeClip.ToEncoderInput(clip, sampleRate, channels, out int encodeRate);
+                    return PlaySafeOpusEncoder.Encode(mono, mono.Length, encodeRate).blob;
+                });
+
+                WWWForm form = new WWWForm();
+                form.AddBinaryData("opusChunks", opusBlob, "audio.opus", "application/octet-stream");
+
+                var response = await SendApiRequest<SpeakerAgeResponse>(PlaysafeBaseURL + SpeakerAgeOpusEndpoint, new ApiRequestOptions
+                {
+                    Method = "POST",
+                    Form = form,
+                    LogResponseBody = false
+                });
+
+                if (!response.Success)
+                {
+                    float pause = PlaySafeSpeakerAgeClip.RetryDelaySeconds(response.StatusCode, response.RetryAfter);
+                    if (pause > 0f)
+                        _speakerAgeRetryAt = Time.realtimeSinceStartup + pause;
+                    return null;
+                }
+
+                if (response.Data?.Data == null)
+                {
+                    LogError("EstimateSpeakerAgeAsync: the response held no estimate.");
+                    return null;
+                }
+
+                return response.Data;
+            }
+            catch (Exception e)
+            {
+                LogError("EstimateSpeakerAgeAsync failed.");
+                LogException(e);
+                return null;
+            }
         }
 
         #endregion

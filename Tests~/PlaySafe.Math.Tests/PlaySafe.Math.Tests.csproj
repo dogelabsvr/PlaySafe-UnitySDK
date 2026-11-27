@@ -6,13 +6,23 @@
     <Nullable>disable</Nullable>
     <AssemblyName>PlaySafe.Math.Tests</AssemblyName>
     <RootNamespace>_DL.PlaySafe.Tests</RootNamespace>
+    <!-- PlaySafeManagerResponse.cs enables nullable but declares its DTO strings non-nullable. -->
+    <NoWarn>$(NoWarn);CS8618</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.6.0" />
     <PackageReference Include="NUnit" Version="3.13.3" />
     <PackageReference Include="NUnit3TestAdapter" Version="4.5.0" />
+    <!-- The version Unity's com.unity.nuget.newtonsoft-json 3.2.1 ships. -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.2" />
+    <Reference Include="Concentus">
+      <HintPath>../../Runtime/Plugins/Concentus.dll</HintPath>
+    </Reference>
   </ItemGroup>
   <ItemGroup>
     <Compile Include="../../Runtime/PlaySafeRecordingDecision.cs" Link="src/PlaySafeRecordingDecision.cs" />
+    <Compile Include="../../Runtime/PlaySafeOpusEncoder.cs" Link="src/PlaySafeOpusEncoder.cs" />
+    <Compile Include="../../Runtime/PlaySafeSpeakerAgeClip.cs" Link="src/PlaySafeSpeakerAgeClip.cs" />
+    <Compile Include="../../Runtime/PlaySafeManagerResponse.cs" Link="src/PlaySafeManagerResponse.cs" />
   </ItemGroup>
 </Project>
