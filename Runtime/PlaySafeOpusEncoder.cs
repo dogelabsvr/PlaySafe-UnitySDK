@@ -36,6 +36,32 @@ namespace _DL.PlaySafe
         private static readonly MemoryStream _outputStream = new MemoryStream(64 * 1024);
         private static readonly float[] _tailFrame = new float[FrameSize];
 
+        // Concentus accepts 8/12/16/24/48 kHz, but FrameSize=960 is only a valid Opus frame at these three.
+        internal static bool IsSupportedSampleRate(int sampleRate)
+        {
+            return sampleRate == 16000 || sampleRate == 24000 || sampleRate == 48000;
+        }
+
+        // The encoder is mono-only: average interleaved channels so they aren't encoded as if they were mono.
+        internal static float[] DownmixToMono(float[] samples, int channels)
+        {
+            if (channels <= 1)
+                return samples;
+
+            float[] mono = new float[samples.Length / channels];
+            for (int i = 0; i < mono.Length; i++)
+            {
+                float sum = 0f;
+                int baseIdx = i * channels;
+                for (int c = 0; c < channels; c++)
+                {
+                    sum += samples[baseIdx + c];
+                }
+                mono[i] = sum / channels;
+            }
+            return mono;
+        }
+
         private static OpusEncoder GetEncoder(int sampleRate)
         {
             if (_cachedEncoder == null || _cachedEncoderRate != sampleRate)

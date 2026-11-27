@@ -719,32 +719,16 @@ namespace _DL.PlaySafe
                     yield break;
                 }
 
-                // Opus (via Concentus) supports 8/12/16/24/48 kHz, but FrameSize=960 only produces valid
-                // frame durations at 16/24/48 kHz. Reject other rates before the encoder throws.
-                if (sampleRate != 16000 && sampleRate != 24000 && sampleRate != 48000)
+                // Reject other rates before the encoder throws.
+                if (!PlaySafeOpusEncoder.IsSupportedSampleRate(sampleRate))
                 {
                     LogError($"PlaySafeManager: Unsupported sampleRate {sampleRate}Hz for Opus encoder. " +
                              "Expected 16000, 24000, or 48000. Configure Photon Recorder.SamplingRate accordingly.");
                     yield break;
                 }
 
-                // The Opus encoder is mono-only. If Photon delivered multi-channel audio (interleaved), downmix
-                // to mono by averaging channels so we don't encode interleaved frames as if they were mono.
-                float[] monoSamples = samples;
-                if (channels > 1)
-                {
-                    monoSamples = new float[samples.Length / channels];
-                    for (int i = 0; i < monoSamples.Length; i++)
-                    {
-                        float sum = 0f;
-                        int baseIdx = i * channels;
-                        for (int c = 0; c < channels; c++)
-                        {
-                            sum += samples[baseIdx + c];
-                        }
-                        monoSamples[i] = sum / channels;
-                    }
-                }
+                // Photon may deliver multi-channel (interleaved) audio.
+                float[] monoSamples = PlaySafeOpusEncoder.DownmixToMono(samples, channels);
 
                 // Encode on a worker thread so the Unity main thread doesn't freeze. Concentus's
                 // Encode is pure managed C# (~40-50% of native libopus speed per the maintainer)
