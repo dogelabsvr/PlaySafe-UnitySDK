@@ -1648,7 +1648,7 @@ namespace _DL.PlaySafe
         /// to grant access or to remove them. Call it from the main thread.
         /// </summary>
         /// <param name="samples">PCM samples from -1 to 1, interleaved when there is more than one channel.
-        /// Send at least 8 seconds of the player speaking alone; 30 seconds is the limit.</param>
+        /// Send at least 8 seconds of the player speaking alone; 15 seconds is the limit.</param>
         /// <param name="sampleRate">Sample rate of <paramref name="samples"/>, from 8000 to 48000.</param>
         /// <param name="channels">Number of channels in <paramref name="samples"/>, from 1 to 8.</param>
         /// <returns>The estimate (its Data is never null), or null when the clip was refused or the request failed (the reason is logged).</returns>
@@ -1680,7 +1680,7 @@ namespace _DL.PlaySafe
                 byte[] opusBlob = await RunOffMainThread(() =>
                 {
                     float[] mono = PlaySafeSpeakerAgeClip.ToEncoderInput(clip, sampleRate, channels, out int encodeRate);
-                    return PlaySafeOpusEncoder.Encode(mono, mono.Length, encodeRate).blob;
+                    return PlaySafeOpusEncoder.Encode(mono, mono.Length, encodeRate, PlaySafeOpusEncoder.VoiceAnalysis).blob;
                 });
 
                 WWWForm form = new WWWForm();

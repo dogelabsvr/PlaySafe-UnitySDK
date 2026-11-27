@@ -10,7 +10,7 @@ namespace _DL.PlaySafe
     internal static class PlaySafeSpeakerAgeClip
     {
         // The API refuses longer clips (SPEAKER_AGE_MAX_SECONDS in dl-voice-ai), so don't encode and upload one.
-        internal const int MaxSeconds = 30;
+        internal const int MaxSeconds = 15;
         internal const int MinSampleRate = 8000;
         internal const int MaxSampleRate = 48000;
         // Unity's widest speaker mode (7.1). A larger count is a caller mistake, and the copy of the clip grows with it.

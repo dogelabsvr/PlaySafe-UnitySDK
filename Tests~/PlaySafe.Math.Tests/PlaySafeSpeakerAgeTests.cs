@@ -60,17 +60,17 @@ namespace _DL.PlaySafe.Tests
         }
 
         [Test]
-        public void ExactlyThirtySeconds_IsAccepted_OneSampleMoreIsNot()
+        public void ExactlyFifteenSeconds_IsAccepted_OneSampleMoreIsNot()
         {
-            Assert.IsNull(PlaySafeSpeakerAgeClip.Validate(new float[30 * 48000], 48000, 1));
-            StringAssert.Contains("longer than 30 seconds", PlaySafeSpeakerAgeClip.Validate(new float[30 * 48000 + 1], 48000, 1));
+            Assert.IsNull(PlaySafeSpeakerAgeClip.Validate(new float[15 * 48000], 48000, 1));
+            StringAssert.Contains("longer than 15 seconds", PlaySafeSpeakerAgeClip.Validate(new float[15 * 48000 + 1], 48000, 1));
         }
 
         [Test]
         public void Duration_CountsFramesNotSamples()
         {
-            Assert.IsNull(PlaySafeSpeakerAgeClip.Validate(Seconds(30, 48000, 2), 48000, 2));
-            StringAssert.Contains("longer than 30 seconds", PlaySafeSpeakerAgeClip.Validate(Seconds(31, 48000, 2), 48000, 2));
+            Assert.IsNull(PlaySafeSpeakerAgeClip.Validate(Seconds(15, 48000, 2), 48000, 2));
+            StringAssert.Contains("longer than 15 seconds", PlaySafeSpeakerAgeClip.Validate(Seconds(16, 48000, 2), 48000, 2));
         }
     }
 
@@ -133,10 +133,10 @@ namespace _DL.PlaySafe.Tests
         }
 
         [Test]
-        public void Resample_KeepsTheDuration_SoThirtySecondsStaysThirtySeconds()
+        public void Resample_KeepsTheDuration_SoFifteenSecondsStaysFifteenSeconds()
         {
-            Assert.AreEqual(30 * 48000, PlaySafeSpeakerAgeClip.Resample(new float[30 * 44100], 44100, 48000).Length);
-            Assert.AreEqual(30 * 24000, PlaySafeSpeakerAgeClip.Resample(new float[30 * 22050], 22050, 24000).Length);
+            Assert.AreEqual(15 * 48000, PlaySafeSpeakerAgeClip.Resample(new float[15 * 44100], 44100, 48000).Length);
+            Assert.AreEqual(15 * 24000, PlaySafeSpeakerAgeClip.Resample(new float[15 * 22050], 22050, 24000).Length);
             Assert.AreEqual(1, PlaySafeSpeakerAgeClip.Resample(new float[1], 44100, 48000).Length);
         }
 
@@ -196,7 +196,7 @@ namespace _DL.PlaySafe.Tests
             return count;
         }
 
-        // What the API adds up to enforce its 30 s limit: each packet's duration from its TOC byte (RFC 6716, 3.1).
+        // What the API adds up to enforce its 15 s limit: each packet's duration from its TOC byte (RFC 6716, 3.1).
         private static double SumPacketMilliseconds(byte[] blob)
         {
             double[] silkMs = { 10, 20, 40, 60 }, hybridMs = { 10, 20 }, celtMs = { 2.5, 5, 10, 20 };
@@ -242,22 +242,59 @@ namespace _DL.PlaySafe.Tests
             Assert.AreEqual(packetCount, CountPackets(blob));
         }
 
-        [TestCase(16000, 16000, 500)]
-        [TestCase(24000, 24000, 750)]
-        [TestCase(48000, 48000, 1500)]
-        [TestCase(44100, 48000, 1500)]
-        [TestCase(8000, 16000, 500)]
-        public void Encode_ThirtySeconds_IsExactlyTheThirtySecondsTheApiAccepts(int sampleRate, int expectedRate, int expectedPackets)
+        [TestCase(16000, 16000, 250)]
+        [TestCase(24000, 24000, 375)]
+        [TestCase(48000, 48000, 750)]
+        [TestCase(44100, 48000, 750)]
+        [TestCase(8000, 16000, 250)]
+        public void Encode_FifteenSeconds_IsExactlyTheFifteenSecondsTheApiAccepts(int sampleRate, int expectedRate, int expectedPackets)
         {
-            float[] mono = PlaySafeSpeakerAgeClip.ToEncoderInput(Tone(30, sampleRate), sampleRate, 1, out int encodeRate);
-            var (blob, packetCount) = PlaySafeOpusEncoder.Encode(mono, mono.Length, encodeRate);
+            float[] mono = PlaySafeSpeakerAgeClip.ToEncoderInput(Tone(15, sampleRate), sampleRate, 1, out int encodeRate);
+            var (blob, packetCount) = PlaySafeOpusEncoder.Encode(mono, mono.Length, encodeRate, PlaySafeOpusEncoder.VoiceAnalysis);
 
             Assert.AreEqual(expectedRate, encodeRate);
             Assert.AreEqual(expectedPackets, packetCount);
             Assert.AreEqual(expectedPackets, CountPackets(blob));
-            Assert.AreEqual(30000.0, SumPacketMilliseconds(blob));
+            Assert.AreEqual(15000.0, SumPacketMilliseconds(blob));
             // The API's limit for this upload (SPEAKER_AGE_MAX_OPUS_BYTES in dl-voice-ai).
-            Assert.Less(blob.Length, 2 * 1024 * 1024);
+            Assert.Less(blob.Length, 1024 * 1024);
+        }
+
+        // Opus configs (RFC 6716, 3.1): 0-11 are the speech coder, 16-31 the waveform coder, 20-23 of those wideband.
+        private static int FirstConfig(byte[] blob) => blob[2] >> 3;
+
+        [TestCase(16000)]
+        [TestCase(24000)]
+        [TestCase(48000)]
+        public void VoiceAnalysisProfile_UsesTheWaveformCoderAtWideband(int sampleRate)
+        {
+            float[] samples = Tone(2, sampleRate);
+            byte[] blob = PlaySafeOpusEncoder.Encode(samples, samples.Length, sampleRate, PlaySafeOpusEncoder.VoiceAnalysis).blob;
+            Assert.That(FirstConfig(blob), Is.InRange(20, 23));
+        }
+
+        [Test]
+        public void TranscriptionProfile_IsTheDefault_AndKeepsTheSpeechCoder()
+        {
+            float[] samples = Tone(2, 16000);
+            byte[] byDefault = PlaySafeOpusEncoder.Encode(samples, samples.Length, 16000).blob;
+            byte[] named = PlaySafeOpusEncoder.Encode(samples, samples.Length, 16000, PlaySafeOpusEncoder.Transcription).blob;
+            Assert.AreEqual(byDefault, named);
+            Assert.Less(FirstConfig(byDefault), 12);
+        }
+
+        [Test]
+        public void Profiles_DoNotAffectEachOther()
+        {
+            float[] samples = Tone(2, 16000);
+            byte[] before = PlaySafeOpusEncoder.Encode(samples, samples.Length, 16000).blob;
+            byte[] analysis = PlaySafeOpusEncoder.Encode(samples, samples.Length, 16000, PlaySafeOpusEncoder.VoiceAnalysis).blob;
+            byte[] after = PlaySafeOpusEncoder.Encode(samples, samples.Length, 16000).blob;
+            byte[] analysisAgain = PlaySafeOpusEncoder.Encode(samples, samples.Length, 16000, PlaySafeOpusEncoder.VoiceAnalysis).blob;
+
+            Assert.AreEqual(before, after);
+            Assert.AreEqual(analysis, analysisAgain);
+            Assert.AreNotEqual(before, analysis);
         }
     }
 
