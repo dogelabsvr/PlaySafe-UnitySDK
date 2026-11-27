@@ -22,12 +22,35 @@ namespace _DL.PlaySafe
     {
         private const int Channels = 1;
         private const int FrameSize = 960;       // 60 ms @ 16 kHz, 40 ms @ 24 kHz, 20 ms @ 48 kHz
-        private const int Bitrate = 24000;
         private const int Complexity = 5;        // Default is 10. Xiph recommends 3-6 on mobile.
         private const int MaxPacketSize = 4000;  // per Opus spec
 
-        private static OpusEncoder _cachedEncoder;
-        private static int _cachedEncoderRate;
+        /// <summary>How a clip is encoded. Each profile keeps its own cached encoder (used under _encoderLock).</summary>
+        internal sealed class Profile
+        {
+            internal readonly OpusApplication Application;
+            internal readonly int Bitrate;
+            internal readonly OpusBandwidth? MaxBandwidth;
+            internal OpusEncoder Encoder;
+            internal int EncoderRate;
+
+            internal Profile(OpusApplication application, int bitrate, OpusBandwidth? maxBandwidth = null)
+            {
+                Application = application;
+                Bitrate = bitrate;
+                MaxBandwidth = maxBandwidth;
+            }
+        }
+
+        // Moderation clips are transcribed, and Opus's speech mode at a low bitrate is enough for that.
+        internal static readonly Profile Transcription = new Profile(OpusApplication.OPUS_APPLICATION_VOIP, 24000);
+
+        // Speaker age clips are scored by a voice classifier. The speech mode reshapes the voice enough to lower a child's
+        // score (0.92 as WAV, 0.79 through it, on a test clip); this mode at 64 kbit/s scored within 0.02 of WAV.
+        // Wideband because the classifier hears nothing above 8 kHz.
+        internal static readonly Profile VoiceAnalysis =
+            new Profile(OpusApplication.OPUS_APPLICATION_AUDIO, 64000, OpusBandwidth.OPUS_BANDWIDTH_WIDEBAND);
+
         private static readonly object _encoderLock = new object();
 
         // Reused under _encoderLock. Reuse means zero per-encode allocations apart from the
@@ -36,25 +59,53 @@ namespace _DL.PlaySafe
         private static readonly MemoryStream _outputStream = new MemoryStream(64 * 1024);
         private static readonly float[] _tailFrame = new float[FrameSize];
 
-        private static OpusEncoder GetEncoder(int sampleRate)
+        // Concentus accepts 8/12/16/24/48 kHz, but FrameSize=960 is only a valid Opus frame at these three.
+        internal static bool IsSupportedSampleRate(int sampleRate)
         {
-            if (_cachedEncoder == null || _cachedEncoderRate != sampleRate)
+            return sampleRate == 16000 || sampleRate == 24000 || sampleRate == 48000;
+        }
+
+        // The encoder is mono-only: average interleaved channels so they aren't encoded as if they were mono.
+        internal static float[] DownmixToMono(float[] samples, int channels)
+        {
+            if (channels <= 1)
+                return samples;
+
+            float[] mono = new float[samples.Length / channels];
+            for (int i = 0; i < mono.Length; i++)
             {
-                _cachedEncoder = new OpusEncoder(sampleRate, Channels, OpusApplication.OPUS_APPLICATION_VOIP);
-                _cachedEncoderRate = sampleRate;
+                float sum = 0f;
+                int baseIdx = i * channels;
+                for (int c = 0; c < channels; c++)
+                {
+                    sum += samples[baseIdx + c];
+                }
+                mono[i] = sum / channels;
+            }
+            return mono;
+        }
+
+        private static OpusEncoder GetEncoder(int sampleRate, Profile profile)
+        {
+            if (profile.Encoder == null || profile.EncoderRate != sampleRate)
+            {
+                profile.Encoder = new OpusEncoder(sampleRate, Channels, profile.Application);
+                profile.EncoderRate = sampleRate;
             }
             else
             {
-                _cachedEncoder.ResetState();
+                profile.Encoder.ResetState();
             }
             // libopus's OPUS_RESET_STATE preserves user CTL params (they live before
             // OPUS_ENCODER_RESET_START in the struct), but Concentus is a port — re-applying
             // the settings unconditionally is two property writes and removes the dependency
             // on that detail. Without this, a deviating ResetState would silently fall back
             // to default complexity (10) and undo the main per-frame optimization.
-            _cachedEncoder.Bitrate = Bitrate;
-            _cachedEncoder.Complexity = Complexity;
-            return _cachedEncoder;
+            profile.Encoder.Bitrate = profile.Bitrate;
+            profile.Encoder.Complexity = Complexity;
+            if (profile.MaxBandwidth.HasValue)
+                profile.Encoder.MaxBandwidth = profile.MaxBandwidth.Value;
+            return profile.Encoder;
         }
 
         /// <summary>
@@ -62,11 +113,11 @@ namespace _DL.PlaySafe
         /// from any thread (no Unity API access, no P/Invoke, no I/O). Call it off the main thread
         /// to avoid blocking the frame.
         /// </summary>
-        internal static (byte[] blob, int packetCount) Encode(float[] samples, int sampleCount, int sampleRate)
+        internal static (byte[] blob, int packetCount) Encode(float[] samples, int sampleCount, int sampleRate, Profile profile = null)
         {
             lock (_encoderLock)
             {
-                var encoder = GetEncoder(sampleRate);
+                var encoder = GetEncoder(sampleRate, profile ?? Transcription);
 
                 _outputStream.SetLength(0);
                 _outputStream.Position = 0;

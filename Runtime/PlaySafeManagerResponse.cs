@@ -323,6 +323,41 @@ namespace _DL.PlaySafe
 
     //#endregion
 
+    #region Speaker age
+    public class SpeakerAgeResponse : PlaySafeApiResponse<SpeakerAgeData> {}
+
+    public class SpeakerAgeData
+    {
+        /// <summary>How likely the speaker is a child, from 0 to 1. Null when no estimate could be made.</summary>
+        [JsonProperty("isChildProbability")]
+        public float? IsChildProbability { get; set; }
+
+        /// <summary>One of the <see cref="SpeakerAgeConclusion"/> values.</summary>
+        [JsonProperty("conclusion")]
+        public string Conclusion { get; set; }
+
+        /// <summary>Why the estimate was or was not made: one of the <see cref="SpeakerAgeReason"/> values.</summary>
+        [JsonProperty("reason")]
+        public string Reason { get; set; }
+    }
+
+    public static class SpeakerAgeConclusion
+    {
+        public const string LikelyChild = "likely_child";
+        public const string LikelyAdult = "likely_adult";
+        public const string Uncertain   = "uncertain";
+    }
+
+    public static class SpeakerAgeReason
+    {
+        public const string Ok              = "ok";
+        public const string NotEnoughSpeech = "not_enough_speech";
+        public const string NoSpeech        = "no_speech";
+        public const string NoNearSpeaker   = "no_near_speaker";
+        public const string ClippedAudio    = "clipped_audio";
+    }
+    #endregion
+
     #region Dev status
     public class PlayerIsDevResponse : PlaySafeApiResponse<PlayerIsDevData> {}
 

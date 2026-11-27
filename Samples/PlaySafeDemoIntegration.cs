@@ -32,6 +32,14 @@ public class PlaySafeDemoIntegration : MonoBehaviour
         //     var results = await playSafeManager.GetPollResultsAsync(poll.Data.Id);
         // }
 
+        // Example: Estimate whether a speaker sounds like a child or an adult (an estimate, not age verification)
+        // float[] samples = GetPlayerVoiceSamples(); // at least 8 seconds of the player speaking
+        // var speakerAge = await playSafeManager.EstimateSpeakerAgeAsync(samples, 16000);
+        // if (speakerAge != null && speakerAge.Data.Conclusion == SpeakerAgeConclusion.LikelyChild)
+        // {
+        //     // Add protections, or confirm the player's age another way
+        // }
+
         // Force moderation on regardless of remote-config sampling; read fresh each tick.
         // playSafeManager.alwaysModerate = IsCompetitiveMatch();
     }

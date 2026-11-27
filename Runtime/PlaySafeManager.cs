@@ -177,6 +177,7 @@ namespace _DL.PlaySafe
         private const int PauseTimeoutSeconds = 30;
         private const int MinimumAudioDurationSeconds = 1;
         private const string OpusModerationEndpoint = "/products/moderation/opus";
+        private const string SpeakerAgeOpusEndpoint = "/products/moderation/speaker-age/opus";
         private const int OpusSampleRate = 16000;
 
         #endregion
@@ -184,6 +185,7 @@ namespace _DL.PlaySafe
         #region Custom Auth
         private bool _hasCustomAuth = false;
         private string _authToken = null;
+        private float _speakerAgeRetryAt;
 
         #endregion 
 
@@ -613,7 +615,7 @@ namespace _DL.PlaySafe
             
             // Check if the URL already has query parameters
             string separator = url.Contains("?") ? "&" : "?";
-            return $"{url}{separator}token={_authToken}";
+            return $"{url}{separator}token={Uri.EscapeDataString(_authToken)}";
         }
         
         #endregion
@@ -719,32 +721,16 @@ namespace _DL.PlaySafe
                     yield break;
                 }
 
-                // Opus (via Concentus) supports 8/12/16/24/48 kHz, but FrameSize=960 only produces valid
-                // frame durations at 16/24/48 kHz. Reject other rates before the encoder throws.
-                if (sampleRate != 16000 && sampleRate != 24000 && sampleRate != 48000)
+                // Reject other rates before the encoder throws.
+                if (!PlaySafeOpusEncoder.IsSupportedSampleRate(sampleRate))
                 {
                     LogError($"PlaySafeManager: Unsupported sampleRate {sampleRate}Hz for Opus encoder. " +
                              "Expected 16000, 24000, or 48000. Configure Photon Recorder.SamplingRate accordingly.");
                     yield break;
                 }
 
-                // The Opus encoder is mono-only. If Photon delivered multi-channel audio (interleaved), downmix
-                // to mono by averaging channels so we don't encode interleaved frames as if they were mono.
-                float[] monoSamples = samples;
-                if (channels > 1)
-                {
-                    monoSamples = new float[samples.Length / channels];
-                    for (int i = 0; i < monoSamples.Length; i++)
-                    {
-                        float sum = 0f;
-                        int baseIdx = i * channels;
-                        for (int c = 0; c < channels; c++)
-                        {
-                            sum += samples[baseIdx + c];
-                        }
-                        monoSamples[i] = sum / channels;
-                    }
-                }
+                // Photon may deliver multi-channel (interleaved) audio.
+                float[] monoSamples = PlaySafeOpusEncoder.DownmixToMono(samples, channels);
 
                 // Encode on a worker thread so the Unity main thread doesn't freeze. Concentus's
                 // Encode is pure managed C# (~40-50% of native libopus speed per the maintainer)
@@ -752,7 +738,7 @@ namespace _DL.PlaySafe
                 // coroutine polls IsCompleted with `yield return null`, so frame ticks continue
                 // running while the encode is in flight. The samples are this send's own copy.
                 Task<(byte[] blob, int packetCount)> encodeTask =
-                    Task.Run(() => PlaySafeOpusEncoder.Encode(monoSamples, monoSamples.Length, sampleRate));
+                    RunOffMainThread(() => PlaySafeOpusEncoder.Encode(monoSamples, monoSamples.Length, sampleRate));
 
                 while (!encodeTask.IsCompleted)
                     yield return null;
@@ -855,6 +841,9 @@ namespace _DL.PlaySafe
         [ItemCanBeNull]
         private async Task<ModerationEventResponse> AddModerationEventAsync(string targetUserId, string eventType, string reason)
         {
+            if (!CanStartRequest())
+                return null;
+
             var tcs = new TaskCompletionSource<ModerationEventResponse>();
             StartCoroutine(AddModerationEventCoroutine(targetUserId, eventType, reason, tcs));
             return await tcs.Task;
@@ -862,52 +851,68 @@ namespace _DL.PlaySafe
 
         private IEnumerator AddModerationEventCoroutine(string targetUserId, string eventType, string reason, TaskCompletionSource<ModerationEventResponse> tcs)
         {
-            string url = AddTokenToUrl($"{PlaysafeBaseURL}{ReportEndpoint}/{eventType}");
-
-            var reportRequest = new PlayerReportRequest
+            UnityWebRequest www = null;
+            // Also run if Unity stops this coroutine: a throw, a deactivated GameObject or a destroyed one must not leave the awaited task pending.
+            Action finish = () =>
             {
-                reporterPlayerUserId = GetTelemetry().UserId,
-                targetPlayerUserId = targetUserId,
-                source = ModerationSource.UNITY_SDK.Value,
-                platform = ModerationPlatform.IN_GAME.Value,
-                reason = reason
+                tcs.TrySetResult(null);
+                www?.Dispose();
             };
+            _inFlightRequests.Add(finish);
 
-            string json = JsonConvert.SerializeObject(reportRequest);
-            byte[] jsonToSend = new System.Text.UTF8Encoding().GetBytes(json);
-
-            UnityWebRequest www = new UnityWebRequest(url, "POST");
-            www.uploadHandler = new UploadHandlerRaw(jsonToSend);
-            www.downloadHandler = new DownloadHandlerBuffer();
-            www.SetRequestHeader("Content-Type", "application/json");
-            www.SetRequestHeader("Authorization", "Bearer " + appKey);
-
-            yield return www.SendWebRequest();
-
-            if (www.result != UnityWebRequest.Result.Success)
+            try
             {
-                LogError("AddModerationEvent error: " + www.error);
-                Log(www.downloadHandler.text);
-                tcs.SetResult(null);
-            }
-            else
-            {
-                try
+                string url = AddTokenToUrl($"{PlaysafeBaseURL}{ReportEndpoint}/{eventType}");
+
+                var reportRequest = new PlayerReportRequest
                 {
-                    Log("PlaySafeManager: Report upload complete!");
+                    reporterPlayerUserId = GetTelemetry().UserId,
+                    targetPlayerUserId = targetUserId,
+                    source = ModerationSource.UNITY_SDK.Value,
+                    platform = ModerationPlatform.IN_GAME.Value,
+                    reason = reason
+                };
+
+                string json = JsonConvert.SerializeObject(reportRequest);
+                byte[] jsonToSend = new System.Text.UTF8Encoding().GetBytes(json);
+
+                www = new UnityWebRequest(url, "POST");
+                www.uploadHandler = new UploadHandlerRaw(jsonToSend);
+                www.downloadHandler = new DownloadHandlerBuffer();
+                www.SetRequestHeader("Content-Type", "application/json");
+                www.SetRequestHeader("Authorization", "Bearer " + appKey);
+                www.timeout = DefaultRequestTimeoutSeconds;
+
+                yield return www.SendWebRequest();
+
+                if (www.result != UnityWebRequest.Result.Success)
+                {
+                    LogError("AddModerationEvent error: " + www.error);
                     Log(www.downloadHandler.text);
-                    var result = JsonConvert.DeserializeObject<ModerationEventResponse>(www.downloadHandler.text);
-                    tcs.SetResult(result);
-                }
-                catch (Exception ex)
-                {
-                    LogError("Could not parse add moderation event response.");
-                    LogException(ex);
                     tcs.SetResult(null);
                 }
+                else
+                {
+                    try
+                    {
+                        Log("PlaySafeManager: Report upload complete!");
+                        Log(www.downloadHandler.text);
+                        var result = JsonConvert.DeserializeObject<ModerationEventResponse>(www.downloadHandler.text);
+                        tcs.SetResult(result);
+                    }
+                    catch (Exception ex)
+                    {
+                        LogError("Could not parse add moderation event response.");
+                        LogException(ex);
+                        tcs.SetResult(null);
+                    }
+                }
             }
-
-            www.Dispose();
+            finally
+            {
+                _inFlightRequests.Remove(finish);
+                finish();
+            }
         }
 
         /// <summary>
@@ -916,6 +921,9 @@ namespace _DL.PlaySafe
         [ItemCanBeNull]
         private async Task<PlaySafeApiResponse> RemoveModerationEventAsync(string targetUserId, string eventType, string reason)
         {
+            if (!CanStartRequest())
+                return null;
+
             var tcs = new TaskCompletionSource<PlaySafeApiResponse>();
             StartCoroutine(RemoveModerationEventCoroutine(targetUserId, eventType, reason, tcs));
             return await tcs.Task;
@@ -977,52 +985,68 @@ namespace _DL.PlaySafe
 
         private IEnumerator RemoveModerationEventCoroutine(string targetUserId, string eventType, string reason, TaskCompletionSource<PlaySafeApiResponse> tcs)
         {
-            string url = AddTokenToUrl($"{PlaysafeBaseURL}{ReportEndpoint}/{eventType}/undo");
-
-            var reportRequest = new PlayerReportRequest
+            UnityWebRequest www = null;
+            // Also run if Unity stops this coroutine: a throw, a deactivated GameObject or a destroyed one must not leave the awaited task pending.
+            Action finish = () =>
             {
-                reporterPlayerUserId = GetTelemetry().UserId,
-                targetPlayerUserId = targetUserId,
-                source = ModerationSource.UNITY_SDK.Value,
-                platform = ModerationPlatform.IN_GAME.Value,
-                reason = reason
+                tcs.TrySetResult(null);
+                www?.Dispose();
             };
+            _inFlightRequests.Add(finish);
 
-            string json = JsonConvert.SerializeObject(reportRequest);
-            byte[] jsonToSend = new System.Text.UTF8Encoding().GetBytes(json);
-
-            UnityWebRequest www = new UnityWebRequest(url, "POST");
-            www.uploadHandler = new UploadHandlerRaw(jsonToSend);
-            www.downloadHandler = new DownloadHandlerBuffer();
-            www.SetRequestHeader("Content-Type", "application/json");
-            www.SetRequestHeader("Authorization", "Bearer " + appKey);
-
-            yield return www.SendWebRequest();
-
-            if (www.result != UnityWebRequest.Result.Success)
+            try
             {
-                LogError("RemoveModerationEvent error: " + www.error);
-                Log(www.downloadHandler.text);
-                tcs.SetResult(null);
-            }
-            else
-            {
-                try
+                string url = AddTokenToUrl($"{PlaysafeBaseURL}{ReportEndpoint}/{eventType}/undo");
+
+                var reportRequest = new PlayerReportRequest
                 {
-                    Log("PlaySafeManager: Remove moderation event complete!");
+                    reporterPlayerUserId = GetTelemetry().UserId,
+                    targetPlayerUserId = targetUserId,
+                    source = ModerationSource.UNITY_SDK.Value,
+                    platform = ModerationPlatform.IN_GAME.Value,
+                    reason = reason
+                };
+
+                string json = JsonConvert.SerializeObject(reportRequest);
+                byte[] jsonToSend = new System.Text.UTF8Encoding().GetBytes(json);
+
+                www = new UnityWebRequest(url, "POST");
+                www.uploadHandler = new UploadHandlerRaw(jsonToSend);
+                www.downloadHandler = new DownloadHandlerBuffer();
+                www.SetRequestHeader("Content-Type", "application/json");
+                www.SetRequestHeader("Authorization", "Bearer " + appKey);
+                www.timeout = DefaultRequestTimeoutSeconds;
+
+                yield return www.SendWebRequest();
+
+                if (www.result != UnityWebRequest.Result.Success)
+                {
+                    LogError("RemoveModerationEvent error: " + www.error);
                     Log(www.downloadHandler.text);
-                    var result = JsonConvert.DeserializeObject<PlaySafeApiResponse>(www.downloadHandler.text);
-                    tcs.SetResult(result);
-                }
-                catch (Exception ex)
-                {
-                    LogError("Could not parse remove moderation event response.");
-                    LogException(ex);
                     tcs.SetResult(null);
                 }
+                else
+                {
+                    try
+                    {
+                        Log("PlaySafeManager: Remove moderation event complete!");
+                        Log(www.downloadHandler.text);
+                        var result = JsonConvert.DeserializeObject<PlaySafeApiResponse>(www.downloadHandler.text);
+                        tcs.SetResult(result);
+                    }
+                    catch (Exception ex)
+                    {
+                        LogError("Could not parse remove moderation event response.");
+                        LogException(ex);
+                        tcs.SetResult(null);
+                    }
+                }
             }
-
-            www.Dispose();
+            finally
+            {
+                _inFlightRequests.Remove(finish);
+                finish();
+            }
         }
 
         private void OnApplicationFocus(bool hasFocus)
@@ -1087,6 +1111,7 @@ namespace _DL.PlaySafe
         private void OnDestroy()
         {
             Application.wantsToQuit -= OnWantsToQuit;
+            _inFlightRequests.AbandonAll();
         }
         
         #endregion
@@ -1130,12 +1155,56 @@ namespace _DL.PlaySafe
         
         #region Web API Helper Methods
 
+        private const int DefaultRequestTimeoutSeconds = 15;
+
+        private const string InactiveGameObjectError = "Request not sent: the PlaySafeManager GameObject is inactive.";
+
+        // StartCoroutine only logs on an inactive GameObject, and the awaited task would then never complete.
+        private bool CanStartRequest()
+        {
+            if (gameObject.activeInHierarchy)
+                return true;
+
+            LogError(InactiveGameObjectError);
+            return false;
+        }
+
+        // WebGL has no worker threads, so Task.Run would never finish there: the work runs inline instead.
+        private static Task<T> RunOffMainThread<T>(Func<T> work)
+        {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            try
+            {
+                return Task.FromResult(work());
+            }
+            catch (Exception e)
+            {
+                return Task.FromException<T>(e);
+            }
+#else
+            return Task.Run(work);
+#endif
+        }
+
+        private readonly PlaySafeInFlightRequests _inFlightRequests = new PlaySafeInFlightRequests();
+
+        // Deactivating the GameObject stops its coroutines; disabling only the component does not.
+        private void OnDisable()
+        {
+            if (!gameObject.activeInHierarchy)
+                _inFlightRequests.AbandonAll();
+        }
+
         public class ApiRequestOptions
         {
             public string Method { get; set; } = "GET";
             public object RequestBody { get; set; } = null;
+            // Sent as multipart form data instead of RequestBody when set (POST only).
+            internal WWWForm Form { get; set; } = null;
+            // False keeps a successful response (a token, an estimate about a person) out of the device log.
+            internal bool LogResponseBody { get; set; } = true;
             public string SuccessMessage { get; set; } = null;
-            public int TimeoutSeconds { get; set; } = 15;
+            public int TimeoutSeconds { get; set; } = DefaultRequestTimeoutSeconds;
         }
 
         public class PlaySafeApiResponse<T>
@@ -1144,6 +1213,8 @@ namespace _DL.PlaySafe
             public T Data { get; set; }
             public string ErrorMessage { get; set; }
             public string RawResponse { get; set; }
+            internal long StatusCode { get; set; }
+            internal string RetryAfter { get; set; }
         }
 
         /// <summary>
@@ -1156,6 +1227,11 @@ namespace _DL.PlaySafe
         public async Task<PlaySafeApiResponse<T>> SendApiRequest<T>(string url, ApiRequestOptions options = null)
         {
             if (options == null) options = new ApiRequestOptions();
+
+            if (!CanStartRequest())
+            {
+                return new PlaySafeApiResponse<T> { Success = false, ErrorMessage = InactiveGameObjectError };
+            }
 
             var tcs = new TaskCompletionSource<PlaySafeApiResponse<T>>();
             StartCoroutine(SendApiRequestCoroutine(url, options, tcs, typeof(T)));
@@ -1170,6 +1246,13 @@ namespace _DL.PlaySafe
         private IEnumerator SendApiRequestCoroutineWithoutTokenUrl<T>(string url, ApiRequestOptions options, TaskCompletionSource<PlaySafeApiResponse<T>> tcs, System.Type responseType)
         {
             UnityWebRequest www = null;
+            // Also run if Unity stops this coroutine: a throw, a deactivated GameObject or a destroyed one must not leave the awaited task pending.
+            Action finish = () =>
+            {
+                tcs.TrySetResult(new PlaySafeApiResponse<T> { Success = false, ErrorMessage = "Request failed." });
+                www?.Dispose();
+            };
+            _inFlightRequests.Add(finish);
 
             try
             {
@@ -1177,6 +1260,10 @@ namespace _DL.PlaySafe
                 if (options.Method.ToUpper() == "GET")
                 {
                     www = UnityWebRequest.Get(url);
+                }
+                else if (options.Method.ToUpper() == "POST" && options.Form != null)
+                {
+                    www = UnityWebRequest.Post(url, options.Form);
                 }
                 else if (options.Method.ToUpper() == "POST")
                 {
@@ -1217,7 +1304,9 @@ namespace _DL.PlaySafe
                 var response = new PlaySafeApiResponse<T>
                 {
                     RawResponse = www.downloadHandler.text,
-                    Success = www.result == UnityWebRequest.Result.Success
+                    Success = www.result == UnityWebRequest.Result.Success,
+                    StatusCode = www.responseCode,
+                    RetryAfter = www.GetResponseHeader("Retry-After")
                 };
 
                 if (!response.Success)
@@ -1234,7 +1323,10 @@ namespace _DL.PlaySafe
                         {
                             Log(options.SuccessMessage);
                         }
-                        Log(www.downloadHandler.text);
+                        if (options.LogResponseBody)
+                        {
+                            Log(www.downloadHandler.text);
+                        }
 
                         // Parse response if we have a specific type
                         if (responseType != typeof(object) && responseType != typeof(string) && !string.IsNullOrEmpty(www.downloadHandler.text))
@@ -1259,7 +1351,8 @@ namespace _DL.PlaySafe
             }
             finally
             {
-                www?.Dispose();
+                _inFlightRequests.Remove(finish);
+                finish();
             }
         }
 
@@ -1549,6 +1642,81 @@ namespace _DL.PlaySafe
             return response.Success ? response.Data : null;
         }
 
+        /// <summary>
+        /// Estimates whether the speaker in a clip sounds like a child or an adult.
+        /// This is an estimate, not age verification: use it to add protections, never on its own
+        /// to grant access or to remove them. Call it from the main thread.
+        /// </summary>
+        /// <param name="samples">PCM samples from -1 to 1, interleaved when there is more than one channel.
+        /// Send at least 8 seconds of the player speaking alone; 15 seconds is the limit.</param>
+        /// <param name="sampleRate">Sample rate of <paramref name="samples"/>, from 8000 to 48000.</param>
+        /// <param name="channels">Number of channels in <paramref name="samples"/>, from 1 to 8.</param>
+        /// <returns>The estimate (its Data is never null), or null when the clip was refused or the request failed (the reason is logged).</returns>
+        [ItemCanBeNull]
+        public async Task<SpeakerAgeResponse> EstimateSpeakerAgeAsync(float[] samples, int sampleRate, int channels = 1)
+        {
+            string problem = PlaySafeSpeakerAgeClip.Validate(samples, sampleRate, channels);
+            if (problem != null)
+            {
+                LogError($"EstimateSpeakerAgeAsync: {problem}");
+                return null;
+            }
+
+            try
+            {
+                if (!CanStartRequest())
+                    return null;
+
+                // A game that retries on null must not encode and upload again while the service is refusing calls.
+                float wait = _speakerAgeRetryAt - Time.realtimeSinceStartup;
+                if (wait > 0f)
+                {
+                    LogWarning($"EstimateSpeakerAgeAsync: the service asked for a pause. Try again in {Mathf.CeilToInt(wait)} s.");
+                    return null;
+                }
+
+                // The encode runs on a worker thread, so it gets its own copy: the caller may reuse the buffer.
+                float[] clip = (float[])samples.Clone();
+                byte[] opusBlob = await RunOffMainThread(() =>
+                {
+                    float[] mono = PlaySafeSpeakerAgeClip.ToEncoderInput(clip, sampleRate, channels, out int encodeRate);
+                    return PlaySafeOpusEncoder.Encode(mono, mono.Length, encodeRate, PlaySafeOpusEncoder.VoiceAnalysis).blob;
+                });
+
+                WWWForm form = new WWWForm();
+                form.AddBinaryData("opusChunks", opusBlob, "audio.opus", "application/octet-stream");
+
+                var response = await SendApiRequest<SpeakerAgeResponse>(PlaysafeBaseURL + SpeakerAgeOpusEndpoint, new ApiRequestOptions
+                {
+                    Method = "POST",
+                    Form = form,
+                    LogResponseBody = false
+                });
+
+                if (!response.Success)
+                {
+                    float pause = PlaySafeSpeakerAgeClip.RetryDelaySeconds(response.StatusCode, response.RetryAfter);
+                    if (pause > 0f)
+                        _speakerAgeRetryAt = Time.realtimeSinceStartup + pause;
+                    return null;
+                }
+
+                if (response.Data?.Data == null)
+                {
+                    LogError("EstimateSpeakerAgeAsync: the response held no estimate.");
+                    return null;
+                }
+
+                return response.Data;
+            }
+            catch (Exception e)
+            {
+                LogError("EstimateSpeakerAgeAsync failed.");
+                LogException(e);
+                return null;
+            }
+        }
+
         #endregion
 
         #region Dev status
@@ -1720,12 +1888,17 @@ namespace _DL.PlaySafe
                 playerUserId
             };
 
+            if (!CanStartRequest())
+                return null;
+
             // Special case: don't add token to URL since we're getting the token
             var tcs = new TaskCompletionSource<PlaySafeApiResponse<PlayerAuthTokenResponse>>();
             var options = new ApiRequestOptions
             {
                 Method = "POST",
                 RequestBody = requestBody,
+                // The response is the player's auth token.
+                LogResponseBody = false,
                 SuccessMessage = "SetCustomAuth completed"
             };
             StartCoroutine(SendApiRequestCoroutineWithoutTokenUrl(url, options, tcs, typeof(PlayerAuthTokenResponse)));
