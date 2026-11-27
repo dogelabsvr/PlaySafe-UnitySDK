@@ -23,6 +23,7 @@
     <Compile Include="../../Runtime/PlaySafeRecordingDecision.cs" Link="src/PlaySafeRecordingDecision.cs" />
     <Compile Include="../../Runtime/PlaySafeOpusEncoder.cs" Link="src/PlaySafeOpusEncoder.cs" />
     <Compile Include="../../Runtime/PlaySafeSpeakerAgeClip.cs" Link="src/PlaySafeSpeakerAgeClip.cs" />
+    <Compile Include="../../Runtime/PlaySafeInFlightRequests.cs" Link="src/PlaySafeInFlightRequests.cs" />
     <Compile Include="../../Runtime/PlaySafeManagerResponse.cs" Link="src/PlaySafeManagerResponse.cs" />
   </ItemGroup>
 </Project>

@@ -738,7 +738,7 @@ namespace _DL.PlaySafe
                 // coroutine polls IsCompleted with `yield return null`, so frame ticks continue
                 // running while the encode is in flight. The samples are this send's own copy.
                 Task<(byte[] blob, int packetCount)> encodeTask =
-                    Task.Run(() => PlaySafeOpusEncoder.Encode(monoSamples, monoSamples.Length, sampleRate));
+                    RunOffMainThread(() => PlaySafeOpusEncoder.Encode(monoSamples, monoSamples.Length, sampleRate));
 
                 while (!encodeTask.IsCompleted)
                     yield return null;
@@ -852,6 +852,13 @@ namespace _DL.PlaySafe
         private IEnumerator AddModerationEventCoroutine(string targetUserId, string eventType, string reason, TaskCompletionSource<ModerationEventResponse> tcs)
         {
             UnityWebRequest www = null;
+            // Also run if Unity stops this coroutine: a throw, a deactivated GameObject or a destroyed one must not leave the awaited task pending.
+            Action finish = () =>
+            {
+                tcs.TrySetResult(null);
+                www?.Dispose();
+            };
+            _inFlightRequests.Add(finish);
 
             try
             {
@@ -903,9 +910,8 @@ namespace _DL.PlaySafe
             }
             finally
             {
-                // A throw above (GetTelemetry unset, a header Unity refuses) must not leave the awaited task pending.
-                tcs.TrySetResult(null);
-                www?.Dispose();
+                _inFlightRequests.Remove(finish);
+                finish();
             }
         }
 
@@ -980,6 +986,13 @@ namespace _DL.PlaySafe
         private IEnumerator RemoveModerationEventCoroutine(string targetUserId, string eventType, string reason, TaskCompletionSource<PlaySafeApiResponse> tcs)
         {
             UnityWebRequest www = null;
+            // Also run if Unity stops this coroutine: a throw, a deactivated GameObject or a destroyed one must not leave the awaited task pending.
+            Action finish = () =>
+            {
+                tcs.TrySetResult(null);
+                www?.Dispose();
+            };
+            _inFlightRequests.Add(finish);
 
             try
             {
@@ -1031,9 +1044,8 @@ namespace _DL.PlaySafe
             }
             finally
             {
-                // A throw above (GetTelemetry unset, a header Unity refuses) must not leave the awaited task pending.
-                tcs.TrySetResult(null);
-                www?.Dispose();
+                _inFlightRequests.Remove(finish);
+                finish();
             }
         }
 
@@ -1099,6 +1111,7 @@ namespace _DL.PlaySafe
         private void OnDestroy()
         {
             Application.wantsToQuit -= OnWantsToQuit;
+            _inFlightRequests.AbandonAll();
         }
         
         #endregion
@@ -1156,6 +1169,32 @@ namespace _DL.PlaySafe
             return false;
         }
 
+        // WebGL has no worker threads, so Task.Run would never finish there: the work runs inline instead.
+        private static Task<T> RunOffMainThread<T>(Func<T> work)
+        {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            try
+            {
+                return Task.FromResult(work());
+            }
+            catch (Exception e)
+            {
+                return Task.FromException<T>(e);
+            }
+#else
+            return Task.Run(work);
+#endif
+        }
+
+        private readonly PlaySafeInFlightRequests _inFlightRequests = new PlaySafeInFlightRequests();
+
+        // Deactivating the GameObject stops its coroutines; disabling only the component does not.
+        private void OnDisable()
+        {
+            if (!gameObject.activeInHierarchy)
+                _inFlightRequests.AbandonAll();
+        }
+
         public class ApiRequestOptions
         {
             public string Method { get; set; } = "GET";
@@ -1207,6 +1246,13 @@ namespace _DL.PlaySafe
         private IEnumerator SendApiRequestCoroutineWithoutTokenUrl<T>(string url, ApiRequestOptions options, TaskCompletionSource<PlaySafeApiResponse<T>> tcs, System.Type responseType)
         {
             UnityWebRequest www = null;
+            // Also run if Unity stops this coroutine: a throw, a deactivated GameObject or a destroyed one must not leave the awaited task pending.
+            Action finish = () =>
+            {
+                tcs.TrySetResult(new PlaySafeApiResponse<T> { Success = false, ErrorMessage = "Request failed." });
+                www?.Dispose();
+            };
+            _inFlightRequests.Add(finish);
 
             try
             {
@@ -1305,9 +1351,8 @@ namespace _DL.PlaySafe
             }
             finally
             {
-                // A throw above (a URL or header Unity refuses, a body that will not serialize) must not leave the awaited task pending.
-                tcs.TrySetResult(new PlaySafeApiResponse<T> { Success = false, ErrorMessage = "Request failed." });
-                www?.Dispose();
+                _inFlightRequests.Remove(finish);
+                finish();
             }
         }
 
@@ -1632,7 +1677,7 @@ namespace _DL.PlaySafe
 
                 // The encode runs on a worker thread, so it gets its own copy: the caller may reuse the buffer.
                 float[] clip = (float[])samples.Clone();
-                byte[] opusBlob = await Task.Run(() =>
+                byte[] opusBlob = await RunOffMainThread(() =>
                 {
                     float[] mono = PlaySafeSpeakerAgeClip.ToEncoderInput(clip, sampleRate, channels, out int encodeRate);
                     return PlaySafeOpusEncoder.Encode(mono, mono.Length, encodeRate).blob;
